@@ -63,9 +63,25 @@ static bool is_identifier_start(unsigned char c)
            c == '_';
 }
 
+static bool is_decimal_digit(unsigned char c)
+{
+    return c >= '0' && c <= '9';
+}
+
 static bool is_identifier_continue(unsigned char c)
 {
-    return is_identifier_start(c) || (c >= '0' && c <= '9');
+    return is_identifier_start(c) || is_decimal_digit(c);
+}
+
+static bool is_base_digit(unsigned char c, unsigned int base)
+{
+    if (is_decimal_digit(c))
+        return (unsigned int)(c - '0') < base;
+
+    if (base == 16)
+        return (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+
+    return false;
 }
 
 static bool is_whitespace(unsigned char c)
@@ -83,6 +99,77 @@ static CcTokenKind keyword_kind(const unsigned char *text, size_t length)
     }
 
     return CC_TOKEN_IDENTIFIER;
+}
+
+static CcToken scan_number(CcLexer *lexer)
+{
+    const CcSourceFile *file = lexer->file;
+    size_t start = lexer->offset;
+    size_t offset = start;
+    unsigned int base = 10;
+    size_t prefix_length = 0;
+
+    if (file->bytes[offset] == '0' && offset + 1 < file->length) {
+        unsigned char marker = file->bytes[offset + 1];
+
+        if (marker == 'x' || marker == 'X') {
+            base = 16;
+            prefix_length = 2;
+        } else if (marker == 'b' || marker == 'B') {
+            base = 2;
+            prefix_length = 2;
+        } else if (marker == 'o' || marker == 'O') {
+            base = 8;
+            prefix_length = 2;
+        }
+    }
+
+    offset += prefix_length;
+
+    bool valid = true;
+    bool saw_digit = false;
+    bool last_was_underscore = false;
+
+    while (offset < file->length) {
+        unsigned char c = file->bytes[offset];
+
+        if (is_base_digit(c, base)) {
+            saw_digit = true;
+            last_was_underscore = false;
+            offset++;
+            continue;
+        }
+
+        if (c == '_') {
+            if (!saw_digit || last_was_underscore ||
+                offset + 1 >= file->length ||
+                !is_base_digit(file->bytes[offset + 1], base))
+                valid = false;
+
+            last_was_underscore = true;
+            offset++;
+            continue;
+        }
+
+        break;
+    }
+
+    if (!saw_digit) valid = false;
+
+    while (offset < file->length &&
+           is_identifier_continue(file->bytes[offset])) {
+        valid = false;
+        offset++;
+    }
+
+    lexer->offset = offset;
+
+    return make_token(
+        valid ? CC_TOKEN_INTEGER_LITERAL : CC_TOKEN_INVALID,
+        lexer->file_id,
+        (uint32_t)start,
+        (uint32_t)offset
+    );
 }
 
 static int peek(const CcSourceFile *file, size_t offset)
@@ -304,6 +391,9 @@ CcToken cc_lexer_next(CcLexer *lexer)
             end
         );
     }
+
+    if (is_decimal_digit(first))
+        return scan_number(lexer);
 
     size_t width = 0;
     CcTokenKind kind = scan_symbol(file, lexer->offset, &width);

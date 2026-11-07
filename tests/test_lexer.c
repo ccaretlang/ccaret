@@ -285,6 +285,106 @@ static void test_longest_match(void)
     fixture_destroy(&fixture);
 }
 
+static void test_integer_literals(void)
+{
+    static const char *const text =
+        "0 123 1_000_000 0xff 0xFF 0b1010 0B10 0o755 0O7 "
+        "0x1_f 0b1_0 0o7_5";
+
+    static const struct {
+        size_t start;
+        size_t end;
+    } expected[] = {
+        { 0, 1 },
+        { 2, 5 },
+        { 6, 15 },
+        { 16, 20 },
+        { 21, 25 },
+        { 26, 32 },
+        { 33, 37 },
+        { 38, 43 },
+        { 44, 47 },
+        { 48, 53 },
+        { 54, 59 },
+        { 60, 65 }
+    };
+
+    LexerFixture fixture;
+
+    fixture_init(&fixture, text);
+
+    for (size_t i = 0; i < sizeof(expected) / sizeof(expected[0]); i++) {
+        CcToken token = cc_lexer_next(&fixture.lexer);
+
+        assert(token.kind == CC_TOKEN_INTEGER_LITERAL);
+        assert(token.span.start == expected[i].start);
+        assert(token.span.end == expected[i].end);
+    }
+
+    CcToken token = cc_lexer_next(&fixture.lexer);
+
+    assert(token.kind == CC_TOKEN_EOF);
+    assert(token.span.start == strlen(text));
+    assert(token.span.end == strlen(text));
+
+    fixture_destroy(&fixture);
+}
+
+static void test_range_vs_number(void)
+{
+    LexerFixture fixture;
+
+    fixture_init(&fixture, "1..10");
+
+    CcToken token = cc_lexer_next(&fixture.lexer);
+
+    assert(token.kind == CC_TOKEN_INTEGER_LITERAL);
+    assert(token.span.start == 0 && token.span.end == 1);
+
+    token = cc_lexer_next(&fixture.lexer);
+    assert(token.kind == CC_TOKEN_DOT_DOT);
+    assert(token.span.start == 1 && token.span.end == 3);
+
+    token = cc_lexer_next(&fixture.lexer);
+    assert(token.kind == CC_TOKEN_INTEGER_LITERAL);
+    assert(token.span.start == 3 && token.span.end == 5);
+
+    token = cc_lexer_next(&fixture.lexer);
+    assert(token.kind == CC_TOKEN_EOF);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_invalid_integers(void)
+{
+    static const char *const invalid[] = {
+        "1_",
+        "1__0",
+        "0x",
+        "0b2",
+        "0o8",
+        "0xg",
+        "123abc",
+        "0x_1",
+        "0b1_",
+        "0b102"
+    };
+
+    LexerFixture fixture;
+
+    for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+        fixture_init(&fixture, invalid[i]);
+
+        CcToken token = cc_lexer_next(&fixture.lexer);
+
+        assert(token.kind == CC_TOKEN_INVALID);
+        assert(token.span.start == 0);
+        assert(token.span.end == strlen(invalid[i]));
+
+        fixture_destroy(&fixture);
+    }
+}
+
 static void test_invalid_arguments(void)
 {
     CcToken token = cc_lexer_next(NULL);
@@ -333,6 +433,9 @@ int main(void)
     test_all_keywords();
     test_symbols();
     test_longest_match();
+    test_integer_literals();
+    test_range_vs_number();
+    test_invalid_integers();
     test_invalid_arguments();
     test_invalid_character();
 
