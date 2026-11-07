@@ -385,6 +385,104 @@ static void test_invalid_integers(void)
     }
 }
 
+static void test_float_literals(void)
+{
+    static const char *const text =
+        "3.14 0.5 1.0 1.5e-3 1.5E+3 1e3 2E-2 "
+        "1_000.5 1.5_0 1.5e1_0";
+
+    static const struct {
+        size_t start;
+        size_t end;
+    } expected[] = {
+        { 0, 4 },
+        { 5, 8 },
+        { 9, 12 },
+        { 13, 19 },
+        { 20, 26 },
+        { 27, 30 },
+        { 31, 35 },
+        { 36, 43 },
+        { 44, 49 },
+        { 50, 57 }
+    };
+
+    LexerFixture fixture;
+
+    fixture_init(&fixture, text);
+
+    for (size_t i = 0; i < sizeof(expected) / sizeof(expected[0]); i++) {
+        CcToken token = cc_lexer_next(&fixture.lexer);
+
+        assert(token.kind == CC_TOKEN_FLOAT_LITERAL);
+        assert(token.span.start == expected[i].start);
+        assert(token.span.end == expected[i].end);
+    }
+
+    CcToken token = cc_lexer_next(&fixture.lexer);
+
+    assert(token.kind == CC_TOKEN_EOF);
+    assert(token.span.start == strlen(text));
+    assert(token.span.end == strlen(text));
+
+    fixture_destroy(&fixture);
+}
+
+static void test_float_vs_range(void)
+{
+    LexerFixture fixture;
+
+    fixture_init(&fixture, "1.5..10");
+
+    CcToken token = cc_lexer_next(&fixture.lexer);
+
+    assert(token.kind == CC_TOKEN_FLOAT_LITERAL);
+    assert(token.span.start == 0 && token.span.end == 3);
+
+    token = cc_lexer_next(&fixture.lexer);
+    assert(token.kind == CC_TOKEN_DOT_DOT);
+    assert(token.span.start == 3 && token.span.end == 5);
+
+    token = cc_lexer_next(&fixture.lexer);
+    assert(token.kind == CC_TOKEN_INTEGER_LITERAL);
+    assert(token.span.start == 5 && token.span.end == 7);
+
+    token = cc_lexer_next(&fixture.lexer);
+    assert(token.kind == CC_TOKEN_EOF);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_invalid_floats(void)
+{
+    static const char *const invalid[] = {
+        "1e",
+        "1e+",
+        "1e-",
+        "1.5e",
+        "1.5e+",
+        "1.5e_3",
+        "1.5e3_",
+        "1.5abc",
+        "1e3abc",
+        "1.5e+3x"
+    };
+
+    LexerFixture fixture;
+
+    for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+        fixture_init(&fixture, invalid[i]);
+
+        CcToken token = cc_lexer_next(&fixture.lexer);
+
+        assert(token.kind == CC_TOKEN_INVALID);
+        assert(token.span.start == 0);
+        assert(token.span.end == strlen(invalid[i]));
+
+        fixture_destroy(&fixture);
+    }
+}
+
 static void test_invalid_arguments(void)
 {
     CcToken token = cc_lexer_next(NULL);
@@ -436,6 +534,9 @@ int main(void)
     test_integer_literals();
     test_range_vs_number();
     test_invalid_integers();
+    test_float_literals();
+    test_float_vs_range();
+    test_invalid_floats();
     test_invalid_arguments();
     test_invalid_character();
 

@@ -101,6 +101,41 @@ static CcTokenKind keyword_kind(const unsigned char *text, size_t length)
     return CC_TOKEN_IDENTIFIER;
 }
 
+static bool scan_digit_sequence(const CcSourceFile *file, size_t *offset,
+                                unsigned int base, bool *out_saw_digit)
+{
+    bool valid = true;
+    bool saw_digit = false;
+    bool last_was_underscore = false;
+
+    while (*offset < file->length) {
+        unsigned char c = file->bytes[*offset];
+
+        if (is_base_digit(c, base)) {
+            saw_digit = true;
+            last_was_underscore = false;
+            (*offset)++;
+            continue;
+        }
+
+        if (c == '_') {
+            if (!saw_digit || last_was_underscore ||
+                *offset + 1 >= file->length ||
+                !is_base_digit(file->bytes[*offset + 1], base))
+                valid = false;
+
+            last_was_underscore = true;
+            (*offset)++;
+            continue;
+        }
+
+        break;
+    }
+
+    *out_saw_digit = saw_digit;
+    return valid;
+}
+
 static CcToken scan_number(CcLexer *lexer)
 {
     const CcSourceFile *file = lexer->file;
@@ -128,33 +163,45 @@ static CcToken scan_number(CcLexer *lexer)
 
     bool valid = true;
     bool saw_digit = false;
-    bool last_was_underscore = false;
+    bool is_float = false;
 
-    while (offset < file->length) {
-        unsigned char c = file->bytes[offset];
-
-        if (is_base_digit(c, base)) {
-            saw_digit = true;
-            last_was_underscore = false;
-            offset++;
-            continue;
-        }
-
-        if (c == '_') {
-            if (!saw_digit || last_was_underscore ||
-                offset + 1 >= file->length ||
-                !is_base_digit(file->bytes[offset + 1], base))
-                valid = false;
-
-            last_was_underscore = true;
-            offset++;
-            continue;
-        }
-
-        break;
-    }
+    if (!scan_digit_sequence(file, &offset, base, &saw_digit))
+        valid = false;
 
     if (!saw_digit) valid = false;
+
+    if (base == 10) {
+        if (offset + 1 < file->length &&
+            file->bytes[offset] == '.' &&
+            is_decimal_digit(file->bytes[offset + 1])) {
+            is_float = true;
+            offset++;
+
+            bool fractional_digit = false;
+
+            if (!scan_digit_sequence(file, &offset, 10, &fractional_digit))
+                valid = false;
+
+            if (!fractional_digit) valid = false;
+        }
+
+        if (offset < file->length &&
+            (file->bytes[offset] == 'e' || file->bytes[offset] == 'E')) {
+            is_float = true;
+            offset++;
+
+            if (offset < file->length &&
+                (file->bytes[offset] == '+' || file->bytes[offset] == '-'))
+                offset++;
+
+            bool exponent_digit = false;
+
+            if (!scan_digit_sequence(file, &offset, 10, &exponent_digit))
+                valid = false;
+
+            if (!exponent_digit) valid = false;
+        }
+    }
 
     while (offset < file->length &&
            is_identifier_continue(file->bytes[offset])) {
@@ -164,8 +211,15 @@ static CcToken scan_number(CcLexer *lexer)
 
     lexer->offset = offset;
 
+    CcTokenKind kind = CC_TOKEN_INTEGER_LITERAL;
+
+    if (!valid)
+        kind = CC_TOKEN_INVALID;
+    else if (is_float)
+        kind = CC_TOKEN_FLOAT_LITERAL;
+
     return make_token(
-        valid ? CC_TOKEN_INTEGER_LITERAL : CC_TOKEN_INVALID,
+        kind,
         lexer->file_id,
         (uint32_t)start,
         (uint32_t)offset
