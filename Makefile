@@ -8,6 +8,7 @@ LEXER_TEST_TARGET  := build/test_lexer
 SOURCES      := src/main.c src/source/source.c src/lexer/lexer.c
 TEST_SOURCES := tests/test_source.c src/source/source.c
 LEXER_TEST_SOURCES := tests/test_lexer.c src/lexer/lexer.c src/source/source.c
+CLI_TEST     := tests/test_cli.sh
 
 
 .PHONY: all check test clean
@@ -34,6 +35,7 @@ check: $(TARGET) $(TEST_TARGET) $(LEXER_TEST_TARGET)
 	./$(TARGET) --version
 	./$(TEST_TARGET)
 	./$(LEXER_TEST_TARGET)
+	sh $(CLI_TEST)
 
 clean:
 	rm -rf build

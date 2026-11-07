@@ -652,6 +652,14 @@ static void test_line_comments(void)
 
     fixture_destroy(&fixture);
 
+    fixture_init(&fixture, "// comment\rfn");
+
+    token = cc_lexer_next(&fixture.lexer);
+    assert(token.kind == CC_TOKEN_KW_FN);
+    assert(token.span.start == 11 && token.span.end == 13);
+
+    fixture_destroy(&fixture);
+
     fixture_init(&fixture, "// no newline");
 
     token = cc_lexer_next(&fixture.lexer);
@@ -764,6 +772,47 @@ static void test_unterminated_comments(void)
     fixture_destroy(&fixture);
 }
 
+static void test_multiple_files(void)
+{
+    CcSourceManager sources;
+    CcSourceError error;
+    CcFileId first_id;
+    CcFileId second_id;
+
+    cc_source_manager_init(&sources);
+
+    assert(cc_source_add_memory(&sources, "first",
+                                (const unsigned char *)"fn", 2,
+                                &first_id, &error));
+    assert(cc_source_add_memory(&sources, "second",
+                                (const unsigned char *)"return", 6,
+                                &second_id, &error));
+    assert(first_id != second_id);
+
+    const CcSourceFile *first = cc_source_get(&sources, first_id);
+    const CcSourceFile *second = cc_source_get(&sources, second_id);
+
+    assert(first != NULL);
+    assert(second != NULL);
+
+    CcLexer lexer;
+
+    cc_lexer_init(&lexer, first, first_id);
+
+    CcToken token = cc_lexer_next(&lexer);
+
+    assert(token.kind == CC_TOKEN_KW_FN);
+    assert(token.span.file_id == first_id);
+
+    cc_lexer_init(&lexer, second, second_id);
+
+    token = cc_lexer_next(&lexer);
+    assert(token.kind == CC_TOKEN_KW_RETURN);
+    assert(token.span.file_id == second_id);
+
+    cc_source_manager_destroy(&sources);
+}
+
 static void test_token_kind_names(void)
 {
     assert(strcmp(cc_token_kind_name(CC_TOKEN_INVALID), "INVALID") == 0);
@@ -847,6 +896,7 @@ int main(void)
     test_invalid_string_literals();
     test_invalid_byte_literals();
     test_unterminated_literals();
+    test_multiple_files();
     test_token_kind_names();
     test_invalid_arguments();
     test_invalid_character();
