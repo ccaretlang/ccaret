@@ -2,7 +2,7 @@
 
 C^ (pronounced "C Caret") is a programming language. The compiler is called `ccaret`, and source files use the `.caret` extension.
 
-Status: draft 0.1. Everything in this folder describes what the language should become, not what the compiler does today. The current `ccaret` is a C17 command line stub and does not parse `.caret` files yet.
+Status: draft 0.1. Most of this folder describes what the language should become. The current `ccaret` includes a source manager and lexer and can dump tokens, but it does not parse `.caret` files yet.
 
 ## Start here
 

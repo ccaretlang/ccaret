@@ -2,7 +2,7 @@
 
 ## Current state
 
-The repository has a C17 CLI skeleton in `src/main.c` and a Makefile. It does not lex, parse, type check, emit IR or compile `.caret` programs yet. The roadmap is separate from implementation status.
+The repository has a C17 CLI, a source manager with UTF-8 validation and a lexer with a `ccaret tokens` dump command. It does not parse, type check, emit IR or compile `.caret` programs yet. The roadmap is separate from implementation status.
 
 ## Planned architecture
 
@@ -39,7 +39,7 @@ examples/
 docs/
 ```
 
-## CLI proposal (not implemented)
+## CLI proposal (partially implemented)
 
 ```sh
 ccaret --help

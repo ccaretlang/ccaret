@@ -13,13 +13,13 @@
 
 ## Phase 1: Source manager and lexer
 
-- [ ] File loading and source span API.
-- [ ] UTF-8 validation and diagnostics.
-- [ ] Token enum covering the agreed lexical inventory.
-- [ ] Handwritten lexer: whitespace, comments, identifiers, keywords, literals, punctuation, operators.
+- [x] File loading and source span API.
+- [x] UTF-8 validation and diagnostics.
+- [x] Token enum covering the agreed lexical inventory.
+- [x] Handwritten lexer: whitespace, comments, identifiers, keywords, literals, punctuation, operators.
 - [ ] Accurate errors for bad escapes, invalid UTF-8 and unterminated constructs.
-- [ ] Unit tests for every token kind and ambiguity.
-- [ ] `ccaret tokens path.caret` command.
+- [x] Unit tests for every token kind and ambiguity.
+- [x] `ccaret tokens path.caret` command.
 
 ## Phase 2: Parser and semantic checks
 

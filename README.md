@@ -17,7 +17,7 @@ C^ source
 
 ## Status
 
-Early development. Compiler frontend is not yet implemented.
+Early development. The source manager and lexer are implemented; parsing and code generation are not yet implemented.
 
 ## Build
 
