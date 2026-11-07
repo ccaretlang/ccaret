@@ -743,3 +743,103 @@ CcToken cc_lexer_next(CcLexer *lexer)
         (uint32_t)lexer->offset
     );
 }
+
+const char *cc_token_kind_name(CcTokenKind kind)
+{
+    switch (kind) {
+    case CC_TOKEN_INVALID: return "INVALID";
+    case CC_TOKEN_EOF: return "EOF";
+    case CC_TOKEN_IDENTIFIER: return "IDENTIFIER";
+    case CC_TOKEN_INTEGER_LITERAL: return "INTEGER_LITERAL";
+    case CC_TOKEN_FLOAT_LITERAL: return "FLOAT_LITERAL";
+    case CC_TOKEN_STRING_LITERAL: return "STRING_LITERAL";
+    case CC_TOKEN_C_STRING_LITERAL: return "C_STRING_LITERAL";
+    case CC_TOKEN_BYTE_LITERAL: return "BYTE_LITERAL";
+    case CC_TOKEN_KW_FN: return "KW_FN";
+    case CC_TOKEN_KW_RETURN: return "KW_RETURN";
+    case CC_TOKEN_KW_LET: return "KW_LET";
+    case CC_TOKEN_KW_VAR: return "KW_VAR";
+    case CC_TOKEN_KW_CONST: return "KW_CONST";
+    case CC_TOKEN_KW_STATIC: return "KW_STATIC";
+    case CC_TOKEN_KW_PUB: return "KW_PUB";
+    case CC_TOKEN_KW_TYPE: return "KW_TYPE";
+    case CC_TOKEN_KW_STRUCT: return "KW_STRUCT";
+    case CC_TOKEN_KW_UNION: return "KW_UNION";
+    case CC_TOKEN_KW_ENUM: return "KW_ENUM";
+    case CC_TOKEN_KW_IF: return "KW_IF";
+    case CC_TOKEN_KW_ELSE: return "KW_ELSE";
+    case CC_TOKEN_KW_MATCH: return "KW_MATCH";
+    case CC_TOKEN_KW_WHILE: return "KW_WHILE";
+    case CC_TOKEN_KW_FOR: return "KW_FOR";
+    case CC_TOKEN_KW_IN: return "KW_IN";
+    case CC_TOKEN_KW_LOOP: return "KW_LOOP";
+    case CC_TOKEN_KW_BREAK: return "KW_BREAK";
+    case CC_TOKEN_KW_CONTINUE: return "KW_CONTINUE";
+    case CC_TOKEN_KW_MODULE: return "KW_MODULE";
+    case CC_TOKEN_KW_IMPORT: return "KW_IMPORT";
+    case CC_TOKEN_KW_AS: return "KW_AS";
+    case CC_TOKEN_KW_EXTERN: return "KW_EXTERN";
+    case CC_TOKEN_KW_UNSAFE: return "KW_UNSAFE";
+    case CC_TOKEN_KW_VOLATILE: return "KW_VOLATILE";
+    case CC_TOKEN_KW_DEFER: return "KW_DEFER";
+    case CC_TOKEN_KW_ERRDEFER: return "KW_ERRDEFER";
+    case CC_TOKEN_KW_TRY: return "KW_TRY";
+    case CC_TOKEN_KW_TRUE: return "KW_TRUE";
+    case CC_TOKEN_KW_FALSE: return "KW_FALSE";
+    case CC_TOKEN_KW_SOME: return "KW_SOME";
+    case CC_TOKEN_KW_NONE: return "KW_NONE";
+    case CC_TOKEN_PLUS: return "PLUS";
+    case CC_TOKEN_MINUS: return "MINUS";
+    case CC_TOKEN_STAR: return "STAR";
+    case CC_TOKEN_SLASH: return "SLASH";
+    case CC_TOKEN_PERCENT: return "PERCENT";
+    case CC_TOKEN_PLUS_PERCENT: return "PLUS_PERCENT";
+    case CC_TOKEN_MINUS_PERCENT: return "MINUS_PERCENT";
+    case CC_TOKEN_STAR_PERCENT: return "STAR_PERCENT";
+    case CC_TOKEN_EQ: return "EQ";
+    case CC_TOKEN_NE: return "NE";
+    case CC_TOKEN_LT: return "LT";
+    case CC_TOKEN_LE: return "LE";
+    case CC_TOKEN_GT: return "GT";
+    case CC_TOKEN_GE: return "GE";
+    case CC_TOKEN_AND_AND: return "AND_AND";
+    case CC_TOKEN_OR_OR: return "OR_OR";
+    case CC_TOKEN_NOT: return "NOT";
+    case CC_TOKEN_AMP: return "AMP";
+    case CC_TOKEN_PIPE: return "PIPE";
+    case CC_TOKEN_CARET: return "CARET";
+    case CC_TOKEN_TILDE: return "TILDE";
+    case CC_TOKEN_SHIFT_LEFT: return "SHIFT_LEFT";
+    case CC_TOKEN_SHIFT_RIGHT: return "SHIFT_RIGHT";
+    case CC_TOKEN_ASSIGN: return "ASSIGN";
+    case CC_TOKEN_PLUS_ASSIGN: return "PLUS_ASSIGN";
+    case CC_TOKEN_MINUS_ASSIGN: return "MINUS_ASSIGN";
+    case CC_TOKEN_STAR_ASSIGN: return "STAR_ASSIGN";
+    case CC_TOKEN_SLASH_ASSIGN: return "SLASH_ASSIGN";
+    case CC_TOKEN_PERCENT_ASSIGN: return "PERCENT_ASSIGN";
+    case CC_TOKEN_AMP_ASSIGN: return "AMP_ASSIGN";
+    case CC_TOKEN_PIPE_ASSIGN: return "PIPE_ASSIGN";
+    case CC_TOKEN_CARET_ASSIGN: return "CARET_ASSIGN";
+    case CC_TOKEN_SHIFT_LEFT_ASSIGN: return "SHIFT_LEFT_ASSIGN";
+    case CC_TOKEN_SHIFT_RIGHT_ASSIGN: return "SHIFT_RIGHT_ASSIGN";
+    case CC_TOKEN_LPAREN: return "LPAREN";
+    case CC_TOKEN_RPAREN: return "RPAREN";
+    case CC_TOKEN_LBRACE: return "LBRACE";
+    case CC_TOKEN_RBRACE: return "RBRACE";
+    case CC_TOKEN_LBRACKET: return "LBRACKET";
+    case CC_TOKEN_RBRACKET: return "RBRACKET";
+    case CC_TOKEN_COMMA: return "COMMA";
+    case CC_TOKEN_SEMICOLON: return "SEMICOLON";
+    case CC_TOKEN_COLON: return "COLON";
+    case CC_TOKEN_DOT: return "DOT";
+    case CC_TOKEN_ARROW: return "ARROW";
+    case CC_TOKEN_FAT_ARROW: return "FAT_ARROW";
+    case CC_TOKEN_QUESTION: return "QUESTION";
+    case CC_TOKEN_DOT_DOT: return "DOT_DOT";
+    case CC_TOKEN_DOT_DOT_EQUAL: return "DOT_DOT_EQUAL";
+    case CC_TOKEN_ELLIPSIS: return "ELLIPSIS";
+    case CC_TOKEN_AT: return "AT";
+    }
+
+    return "UNKNOWN";
+}

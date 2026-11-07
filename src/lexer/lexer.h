@@ -128,5 +128,6 @@ typedef struct {
 
 void cc_lexer_init(CcLexer *lexer, const CcSourceFile *file, CcFileId file_id);
 CcToken cc_lexer_next(CcLexer *lexer);
+const char *cc_token_kind_name(CcTokenKind kind);
 
 #endif

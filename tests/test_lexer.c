@@ -764,6 +764,26 @@ static void test_unterminated_comments(void)
     fixture_destroy(&fixture);
 }
 
+static void test_token_kind_names(void)
+{
+    assert(strcmp(cc_token_kind_name(CC_TOKEN_INVALID), "INVALID") == 0);
+    assert(strcmp(cc_token_kind_name(CC_TOKEN_EOF), "EOF") == 0);
+    assert(strcmp(cc_token_kind_name(CC_TOKEN_IDENTIFIER),
+                  "IDENTIFIER") == 0);
+    assert(strcmp(cc_token_kind_name(CC_TOKEN_INTEGER_LITERAL),
+                  "INTEGER_LITERAL") == 0);
+    assert(strcmp(cc_token_kind_name(CC_TOKEN_C_STRING_LITERAL),
+                  "C_STRING_LITERAL") == 0);
+    assert(strcmp(cc_token_kind_name(CC_TOKEN_KW_FN), "KW_FN") == 0);
+    assert(strcmp(cc_token_kind_name(CC_TOKEN_KW_ERRDEFER),
+                  "KW_ERRDEFER") == 0);
+    assert(strcmp(cc_token_kind_name(CC_TOKEN_SHIFT_LEFT_ASSIGN),
+                  "SHIFT_LEFT_ASSIGN") == 0);
+    assert(strcmp(cc_token_kind_name(CC_TOKEN_DOT_DOT_EQUAL),
+                  "DOT_DOT_EQUAL") == 0);
+    assert(strcmp(cc_token_kind_name(CC_TOKEN_AT), "AT") == 0);
+}
+
 static void test_invalid_arguments(void)
 {
     CcToken token = cc_lexer_next(NULL);
@@ -827,6 +847,7 @@ int main(void)
     test_invalid_string_literals();
     test_invalid_byte_literals();
     test_unterminated_literals();
+    test_token_kind_names();
     test_invalid_arguments();
     test_invalid_character();
 

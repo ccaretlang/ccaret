@@ -5,7 +5,7 @@ CPPFLAGS     := -Isrc
 TARGET 	     := build/ccaret
 TEST_TARGET  := build/test_source
 LEXER_TEST_TARGET  := build/test_lexer
-SOURCES      := src/main.c src/source/source.c
+SOURCES      := src/main.c src/source/source.c src/lexer/lexer.c
 TEST_SOURCES := tests/test_source.c src/source/source.c
 LEXER_TEST_SOURCES := tests/test_lexer.c src/lexer/lexer.c src/source/source.c
 
@@ -14,7 +14,7 @@ LEXER_TEST_SOURCES := tests/test_lexer.c src/lexer/lexer.c src/source/source.c
 
 all: $(TARGET)
 
-$(TARGET): $(SOURCES) src/source/source.h
+$(TARGET): $(SOURCES) src/source/source.h src/lexer/lexer.h
 	mkdir -p build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(SOURCES) -o $(TARGET)
 
