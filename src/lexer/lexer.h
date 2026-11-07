@@ -120,4 +120,13 @@ typedef struct {
     CcSourceSpan span;
 } CcToken;
 
+typedef struct {
+    const CcSourceFile *file;
+    CcFileId file_id;
+    size_t offset;
+} CcLexer;
+
+void cc_lexer_init(CcLexer *lexer, const CcSourceFile *file, CcFileId file_id);
+CcToken cc_lexer_next(CcLexer *lexer);
+
 #endif

@@ -4,8 +4,10 @@ CPPFLAGS     := -Isrc
 
 TARGET 	     := build/ccaret
 TEST_TARGET  := build/test_source
+LEXER_TEST_TARGET  := build/test_lexer
 SOURCES      := src/main.c src/source/source.c
 TEST_SOURCES := tests/test_source.c src/source/source.c
+LEXER_TEST_SOURCES := tests/test_lexer.c src/lexer/lexer.c src/source/source.c
 
 
 .PHONY: all check test clean
@@ -20,12 +22,18 @@ $(TEST_TARGET): $(TEST_SOURCES) src/source/source.h
 	mkdir -p build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(TEST_SOURCES) -o $(TEST_TARGET)
 
-test: $(TEST_TARGET)
-	./$(TEST_TARGET)
+$(LEXER_TEST_TARGET): $(LEXER_TEST_SOURCES) src/source/source.h src/lexer/lexer.h
+	mkdir -p build
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LEXER_TEST_SOURCES) -o $(LEXER_TEST_TARGET)
 
-check: $(TARGET) $(TEST_TARGET)
+test: $(TEST_TARGET) $(LEXER_TEST_TARGET)
+	./$(TEST_TARGET)
+	./$(LEXER_TEST_TARGET)
+
+check: $(TARGET) $(TEST_TARGET) $(LEXER_TEST_TARGET)
 	./$(TARGET) --version
 	./$(TEST_TARGET)
+	./$(LEXER_TEST_TARGET)
 
 clean:
 	rm -rf build
