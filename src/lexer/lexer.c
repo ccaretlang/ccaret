@@ -9,6 +9,11 @@ typedef struct {
     CcTokenKind kind;
 } CcKeyword;
 
+typedef struct {
+    bool valid;
+    size_t byte_count;
+} CcEscape;
+
 static const CcKeyword keywords[] = {
     { "fn", CC_TOKEN_KW_FN },
     { "return", CC_TOKEN_KW_RETURN },
@@ -82,6 +87,28 @@ static bool is_base_digit(unsigned char c, unsigned int base)
         return (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 
     return false;
+}
+
+static bool is_hex_digit(unsigned char c)
+{
+    return is_base_digit(c, 16);
+}
+
+static unsigned int hex_value(unsigned char c)
+{
+    if (is_decimal_digit(c)) return (unsigned int)(c - '0');
+    if (c >= 'a' && c <= 'f') return (unsigned int)(c - 'a') + 10;
+
+    return (unsigned int)(c - 'A') + 10;
+}
+
+static size_t utf8_length(unsigned int codepoint)
+{
+    if (codepoint <= 0x7FU) return 1;
+    if (codepoint <= 0x7FFU) return 2;
+    if (codepoint <= 0xFFFFU) return 3;
+
+    return 4;
 }
 
 static bool is_whitespace(unsigned char c)
@@ -402,6 +429,180 @@ static CcTokenKind scan_symbol(const CcSourceFile *file, size_t start,
     }
 }
 
+static CcEscape scan_escape(const CcSourceFile *file, size_t *offset)
+{
+    CcEscape escape = { false, 0 };
+    size_t i = *offset + 1;
+
+    if (i >= file->length || file->bytes[i] == '\n' || file->bytes[i] == '\r') {
+        *offset = i;
+        return escape;
+    }
+
+    unsigned char c = file->bytes[i];
+
+    switch (c) {
+    case 'n':
+    case 'r':
+    case 't':
+    case '\\':
+    case '"':
+    case '0':
+        escape.valid = true;
+        escape.byte_count = 1;
+        i++;
+        break;
+    case 'x': {
+        i++;
+
+        size_t digit_count = 0;
+
+        while (i < file->length && digit_count < 2 &&
+               is_hex_digit(file->bytes[i])) {
+            digit_count++;
+            i++;
+        }
+
+        if (digit_count == 2) {
+            escape.valid = true;
+            escape.byte_count = 1;
+        }
+        break;
+    }
+    case 'u': {
+        i++;
+        if (i >= file->length || file->bytes[i] != '{') break;
+        i++;
+
+        unsigned int value = 0;
+        size_t digit_count = 0;
+        bool too_many_digits = false;
+
+        while (i < file->length && is_hex_digit(file->bytes[i])) {
+            if (digit_count < 6)
+                value = value * 16U + hex_value(file->bytes[i]);
+            else
+                too_many_digits = true;
+            digit_count++;
+            i++;
+        }
+
+        if (i >= file->length || file->bytes[i] != '}') break;
+        i++;
+
+        if (digit_count == 0 || too_many_digits) break;
+        if (value > 0x10FFFFU ||
+            (value >= 0xD800U && value <= 0xDFFFU)) break;
+
+        escape.valid = true;
+        escape.byte_count = utf8_length(value);
+        break;
+    }
+    default:
+        i++;
+        break;
+    }
+
+    *offset = i;
+    return escape;
+}
+
+static CcToken scan_string(CcLexer *lexer, size_t prefix_length)
+{
+    const CcSourceFile *file = lexer->file;
+    size_t start = lexer->offset;
+    size_t offset = start + prefix_length + 1;
+    bool valid = true;
+    bool terminated = false;
+
+    while (offset < file->length) {
+        unsigned char c = file->bytes[offset];
+
+        if (c == '"') {
+            offset++;
+            terminated = true;
+            break;
+        }
+
+        if (c == '\n' || c == '\r')
+            break;
+
+        if (c == '\\') {
+            CcEscape escape = scan_escape(file, &offset);
+
+            if (!escape.valid)
+                valid = false;
+            continue;
+        }
+
+        offset++;
+    }
+
+    if (!terminated) valid = false;
+
+    lexer->offset = offset;
+
+    CcTokenKind kind = prefix_length == 0
+        ? CC_TOKEN_STRING_LITERAL
+        : CC_TOKEN_C_STRING_LITERAL;
+
+    if (!valid) kind = CC_TOKEN_INVALID;
+
+    return make_token(
+        kind,
+        lexer->file_id,
+        (uint32_t)start,
+        (uint32_t)offset
+    );
+}
+
+static CcToken scan_byte_literal(CcLexer *lexer)
+{
+    const CcSourceFile *file = lexer->file;
+    size_t start = lexer->offset;
+    size_t offset = start + 1;
+    size_t byte_count = 0;
+    bool valid = true;
+    bool terminated = false;
+
+    while (offset < file->length) {
+        unsigned char c = file->bytes[offset];
+
+        if (c == '\'') {
+            offset++;
+            terminated = true;
+            break;
+        }
+
+        if (c == '\n' || c == '\r')
+            break;
+
+        if (c == '\\') {
+            CcEscape escape = scan_escape(file, &offset);
+
+            if (!escape.valid)
+                valid = false;
+            else
+                byte_count += escape.byte_count;
+            continue;
+        }
+
+        byte_count++;
+        offset++;
+    }
+
+    if (!terminated || byte_count != 1) valid = false;
+
+    lexer->offset = offset;
+
+    return make_token(
+        valid ? CC_TOKEN_BYTE_LITERAL : CC_TOKEN_INVALID,
+        lexer->file_id,
+        (uint32_t)start,
+        (uint32_t)offset
+    );
+}
+
 void cc_lexer_init(CcLexer *lexer, const CcSourceFile *file, CcFileId file_id)
 {
     if (lexer == NULL) return;
@@ -428,6 +629,16 @@ CcToken cc_lexer_next(CcLexer *lexer)
         return make_token(CC_TOKEN_EOF, lexer->file_id, start, start);
 
     unsigned char first = file->bytes[lexer->offset];
+
+    if (first == 'c' && lexer->offset + 1 < file->length &&
+        file->bytes[lexer->offset + 1] == '"')
+        return scan_string(lexer, 1);
+
+    if (first == '"')
+        return scan_string(lexer, 0);
+
+    if (first == '\'')
+        return scan_byte_literal(lexer);
 
     if (is_identifier_start(first)) {
         lexer->offset++;

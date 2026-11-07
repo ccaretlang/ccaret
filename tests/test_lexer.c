@@ -32,6 +32,24 @@ static void fixture_destroy(LexerFixture *fixture)
     cc_source_manager_destroy(&fixture->sources);
 }
 
+static void expect_token(const char *text, CcTokenKind kind)
+{
+    LexerFixture fixture;
+
+    fixture_init(&fixture, text);
+
+    CcToken token = cc_lexer_next(&fixture.lexer);
+
+    assert(token.kind == kind);
+    assert(token.span.start == 0);
+    assert(token.span.end == strlen(text));
+
+    token = cc_lexer_next(&fixture.lexer);
+    assert(token.kind == CC_TOKEN_EOF);
+
+    fixture_destroy(&fixture);
+}
+
 static void test_empty_and_whitespace(void)
 {
     LexerFixture fixture;
@@ -483,6 +501,132 @@ static void test_invalid_floats(void)
     }
 }
 
+static void test_string_literals(void)
+{
+    static const char *const valid[] = {
+        "\"\"",
+        "\"hello\"",
+        "\"a b\"",
+        "\"\\n\\r\\t\\0\"",
+        "\"\\x41\\x7F\"",
+        "\"\\u{41}\\u{20AC}\"",
+        "\"\\u{10FFFF}\"",
+        "\"\\u{0}\""
+    };
+
+    static const char with_quote[] = { '"', '\\', '"', '"', 0 };
+    static const char with_backslash[] = { '"', '\\', '\\', '"', 0 };
+
+    for (size_t i = 0; i < sizeof(valid) / sizeof(valid[0]); i++)
+        expect_token(valid[i], CC_TOKEN_STRING_LITERAL);
+
+    expect_token(with_quote, CC_TOKEN_STRING_LITERAL);
+    expect_token(with_backslash, CC_TOKEN_STRING_LITERAL);
+}
+
+static void test_c_string_literals(void)
+{
+    static const char *const valid[] = {
+        "c\"\"",
+        "c\"hello\"",
+        "c\"\\n\"",
+        "c\"\\x41\"",
+        "c\"\\u{20AC}\""
+    };
+
+    for (size_t i = 0; i < sizeof(valid) / sizeof(valid[0]); i++)
+        expect_token(valid[i], CC_TOKEN_C_STRING_LITERAL);
+
+    expect_token("c", CC_TOKEN_IDENTIFIER);
+}
+
+static void test_byte_literals(void)
+{
+    static const char *const valid[] = {
+        "'A'",
+        "'\\n'",
+        "'\\0'",
+        "'\\x41'",
+        "'\\xFF'",
+        "'\\u{41}'",
+        "'\\u{7F}'",
+        "'\"'",
+        "'\\\\'"
+    };
+
+    for (size_t i = 0; i < sizeof(valid) / sizeof(valid[0]); i++)
+        expect_token(valid[i], CC_TOKEN_BYTE_LITERAL);
+}
+
+static void test_invalid_string_literals(void)
+{
+    static const char *const invalid[] = {
+        "\"abc",
+        "\"abc\\",
+        "\"\\q\"",
+        "\"\\x4\"",
+        "\"\\xGG\"",
+        "\"\\u\"",
+        "\"\\u{}\"",
+        "\"\\u{110000}\"",
+        "\"\\u{D800}\"",
+        "\"\\u{41\""
+    };
+
+    for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++)
+        expect_token(invalid[i], CC_TOKEN_INVALID);
+
+    expect_token("c\"\\q\"", CC_TOKEN_INVALID);
+    expect_token("c\"abc", CC_TOKEN_INVALID);
+}
+
+static void test_invalid_byte_literals(void)
+{
+    static const char *const invalid[] = {
+        "''",
+        "'AB'",
+        "'\\u{80}'",
+        "'\\q'",
+        "'\\x4'",
+        "'A"
+    };
+
+    static const char multibyte[] = { '\'', (char)0xC3, (char)0xA9, '\'', 0 };
+
+    for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++)
+        expect_token(invalid[i], CC_TOKEN_INVALID);
+
+    expect_token(multibyte, CC_TOKEN_INVALID);
+}
+
+static void test_unterminated_literals(void)
+{
+    LexerFixture fixture;
+
+    fixture_init(&fixture, "\"abc\nfn");
+
+    CcToken token = cc_lexer_next(&fixture.lexer);
+
+    assert(token.kind == CC_TOKEN_INVALID);
+    assert(token.span.start == 0 && token.span.end == 4);
+
+    token = cc_lexer_next(&fixture.lexer);
+    assert(token.kind == CC_TOKEN_KW_FN);
+
+    fixture_destroy(&fixture);
+
+    fixture_init(&fixture, "'A\nreturn");
+
+    token = cc_lexer_next(&fixture.lexer);
+    assert(token.kind == CC_TOKEN_INVALID);
+    assert(token.span.start == 0 && token.span.end == 2);
+
+    token = cc_lexer_next(&fixture.lexer);
+    assert(token.kind == CC_TOKEN_KW_RETURN);
+
+    fixture_destroy(&fixture);
+}
+
 static void test_invalid_arguments(void)
 {
     CcToken token = cc_lexer_next(NULL);
@@ -537,6 +681,12 @@ int main(void)
     test_float_literals();
     test_float_vs_range();
     test_invalid_floats();
+    test_string_literals();
+    test_c_string_literals();
+    test_byte_literals();
+    test_invalid_string_literals();
+    test_invalid_byte_literals();
+    test_unterminated_literals();
     test_invalid_arguments();
     test_invalid_character();
 
