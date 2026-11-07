@@ -117,6 +117,50 @@ static bool is_whitespace(unsigned char c)
            c == '\v' || c == '\f';
 }
 
+static void skip_line_comment(const CcSourceFile *file, size_t *offset)
+{
+    while (*offset < file->length) {
+        unsigned char c = file->bytes[*offset];
+
+        if (c == '\n' || c == '\r') break;
+
+        (*offset)++;
+    }
+}
+
+static bool skip_block_comment(const CcSourceFile *file, size_t *offset)
+{
+    size_t i = *offset + 2;
+    size_t depth = 1;
+
+    while (i < file->length) {
+        if (i + 1 < file->length &&
+            file->bytes[i] == '/' && file->bytes[i + 1] == '*') {
+            depth++;
+            i += 2;
+            continue;
+        }
+
+        if (i + 1 < file->length &&
+            file->bytes[i] == '*' && file->bytes[i + 1] == '/') {
+            depth--;
+            i += 2;
+
+            if (depth == 0) {
+                *offset = i;
+                return true;
+            }
+
+            continue;
+        }
+
+        i++;
+    }
+
+    *offset = i;
+    return false;
+}
+
 static CcTokenKind keyword_kind(const unsigned char *text, size_t length)
 {
     for (size_t i = 0; i < sizeof(keywords) / sizeof(keywords[0]); i++) {
@@ -619,9 +663,36 @@ CcToken cc_lexer_next(CcLexer *lexer)
 
     const CcSourceFile *file = lexer->file;
 
-    while (lexer->offset < file->length &&
-           is_whitespace(file->bytes[lexer->offset]))
-        lexer->offset++;
+    for (;;) {
+        while (lexer->offset < file->length &&
+               is_whitespace(file->bytes[lexer->offset]))
+            lexer->offset++;
+
+        if (lexer->offset + 1 >= file->length) break;
+
+        unsigned char c = file->bytes[lexer->offset];
+
+        if (c == '/' && file->bytes[lexer->offset + 1] == '/') {
+            skip_line_comment(file, &lexer->offset);
+            continue;
+        }
+
+        if (c == '/' && file->bytes[lexer->offset + 1] == '*') {
+            size_t comment_start = lexer->offset;
+
+            if (!skip_block_comment(file, &lexer->offset))
+                return make_token(
+                    CC_TOKEN_INVALID,
+                    lexer->file_id,
+                    (uint32_t)comment_start,
+                    (uint32_t)lexer->offset
+                );
+
+            continue;
+        }
+
+        break;
+    }
 
     uint32_t start = (uint32_t)lexer->offset;
 

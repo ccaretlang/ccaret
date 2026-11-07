@@ -627,6 +627,143 @@ static void test_unterminated_literals(void)
     fixture_destroy(&fixture);
 }
 
+static void test_line_comments(void)
+{
+    LexerFixture fixture;
+
+    fixture_init(&fixture, "// comment\nfn");
+
+    CcToken token = cc_lexer_next(&fixture.lexer);
+
+    assert(token.kind == CC_TOKEN_KW_FN);
+    assert(token.span.start == 11 && token.span.end == 13);
+
+    token = cc_lexer_next(&fixture.lexer);
+    assert(token.kind == CC_TOKEN_EOF);
+    assert(token.span.start == 13 && token.span.end == 13);
+
+    fixture_destroy(&fixture);
+
+    fixture_init(&fixture, "// comment\r\nreturn");
+
+    token = cc_lexer_next(&fixture.lexer);
+    assert(token.kind == CC_TOKEN_KW_RETURN);
+    assert(token.span.start == 12 && token.span.end == 18);
+
+    fixture_destroy(&fixture);
+
+    fixture_init(&fixture, "// no newline");
+
+    token = cc_lexer_next(&fixture.lexer);
+    assert(token.kind == CC_TOKEN_EOF);
+    assert(token.span.start == 13 && token.span.end == 13);
+
+    fixture_destroy(&fixture);
+
+    fixture_init(&fixture, "a//b\nc");
+
+    token = cc_lexer_next(&fixture.lexer);
+    assert(token.kind == CC_TOKEN_IDENTIFIER);
+    assert(token.span.start == 0 && token.span.end == 1);
+
+    token = cc_lexer_next(&fixture.lexer);
+    assert(token.kind == CC_TOKEN_IDENTIFIER);
+    assert(token.span.start == 5 && token.span.end == 6);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_block_comments(void)
+{
+    LexerFixture fixture;
+
+    fixture_init(&fixture, "/* comment */ fn");
+
+    CcToken token = cc_lexer_next(&fixture.lexer);
+
+    assert(token.kind == CC_TOKEN_KW_FN);
+    assert(token.span.start == 14 && token.span.end == 16);
+
+    fixture_destroy(&fixture);
+
+    fixture_init(&fixture, "/* a /* b */ c */ fn");
+
+    token = cc_lexer_next(&fixture.lexer);
+    assert(token.kind == CC_TOKEN_KW_FN);
+    assert(token.span.start == 18 && token.span.end == 20);
+
+    fixture_destroy(&fixture);
+
+    fixture_init(&fixture, "/*\nline\n*/let");
+
+    token = cc_lexer_next(&fixture.lexer);
+    assert(token.kind == CC_TOKEN_KW_LET);
+    assert(token.span.start == 10 && token.span.end == 13);
+
+    fixture_destroy(&fixture);
+
+    fixture_init(&fixture, "/**/x");
+
+    token = cc_lexer_next(&fixture.lexer);
+    assert(token.kind == CC_TOKEN_IDENTIFIER);
+    assert(token.span.start == 4 && token.span.end == 5);
+
+    fixture_destroy(&fixture);
+
+    fixture_init(&fixture, "/* // */x");
+
+    token = cc_lexer_next(&fixture.lexer);
+    assert(token.kind == CC_TOKEN_IDENTIFIER);
+    assert(token.span.start == 8 && token.span.end == 9);
+
+    fixture_destroy(&fixture);
+
+    fixture_init(&fixture, "1/2");
+
+    token = cc_lexer_next(&fixture.lexer);
+    assert(token.kind == CC_TOKEN_INTEGER_LITERAL);
+
+    token = cc_lexer_next(&fixture.lexer);
+    assert(token.kind == CC_TOKEN_SLASH);
+
+    token = cc_lexer_next(&fixture.lexer);
+    assert(token.kind == CC_TOKEN_INTEGER_LITERAL);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_unterminated_comments(void)
+{
+    static const char *const invalid[] = {
+        "/*",
+        "/*/",
+        "/* unterminated",
+        "/* /* */"
+    };
+
+    for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++)
+        expect_token(invalid[i], CC_TOKEN_INVALID);
+
+    LexerFixture fixture;
+
+    fixture_init(&fixture, "a /*");
+
+    CcToken token = cc_lexer_next(&fixture.lexer);
+
+    assert(token.kind == CC_TOKEN_IDENTIFIER);
+    assert(token.span.start == 0 && token.span.end == 1);
+
+    token = cc_lexer_next(&fixture.lexer);
+    assert(token.kind == CC_TOKEN_INVALID);
+    assert(token.span.start == 2 && token.span.end == 4);
+
+    token = cc_lexer_next(&fixture.lexer);
+    assert(token.kind == CC_TOKEN_EOF);
+    assert(token.span.start == 4 && token.span.end == 4);
+
+    fixture_destroy(&fixture);
+}
+
 static void test_invalid_arguments(void)
 {
     CcToken token = cc_lexer_next(NULL);
@@ -671,6 +808,9 @@ static void test_invalid_character(void)
 int main(void)
 {
     test_empty_and_whitespace();
+    test_line_comments();
+    test_block_comments();
+    test_unterminated_comments();
     test_identifiers_and_keywords();
     test_all_keywords();
     test_symbols();
