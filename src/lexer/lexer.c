@@ -85,6 +85,182 @@ static CcTokenKind keyword_kind(const unsigned char *text, size_t length)
     return CC_TOKEN_IDENTIFIER;
 }
 
+static int peek(const CcSourceFile *file, size_t offset)
+{
+    if (offset >= file->length) return -1;
+
+    return file->bytes[offset];
+}
+
+static CcTokenKind scan_symbol(const CcSourceFile *file, size_t start,
+                               size_t *out_width)
+{
+    unsigned char first = file->bytes[start];
+    int second = peek(file, start + 1);
+    int third = peek(file, start + 2);
+
+    *out_width = 1;
+
+    switch (first) {
+    case '+':
+        if (second == '%') {
+            *out_width = 2;
+            return CC_TOKEN_PLUS_PERCENT;
+        }
+        if (second == '=') {
+            *out_width = 2;
+            return CC_TOKEN_PLUS_ASSIGN;
+        }
+        return CC_TOKEN_PLUS;
+    case '-':
+        if (second == '%') {
+            *out_width = 2;
+            return CC_TOKEN_MINUS_PERCENT;
+        }
+        if (second == '=') {
+            *out_width = 2;
+            return CC_TOKEN_MINUS_ASSIGN;
+        }
+        if (second == '>') {
+            *out_width = 2;
+            return CC_TOKEN_ARROW;
+        }
+        return CC_TOKEN_MINUS;
+    case '*':
+        if (second == '%') {
+            *out_width = 2;
+            return CC_TOKEN_STAR_PERCENT;
+        }
+        if (second == '=') {
+            *out_width = 2;
+            return CC_TOKEN_STAR_ASSIGN;
+        }
+        return CC_TOKEN_STAR;
+    case '/':
+        if (second == '=') {
+            *out_width = 2;
+            return CC_TOKEN_SLASH_ASSIGN;
+        }
+        return CC_TOKEN_SLASH;
+    case '%':
+        if (second == '=') {
+            *out_width = 2;
+            return CC_TOKEN_PERCENT_ASSIGN;
+        }
+        return CC_TOKEN_PERCENT;
+    case '=':
+        if (second == '=') {
+            *out_width = 2;
+            return CC_TOKEN_EQ;
+        }
+        if (second == '>') {
+            *out_width = 2;
+            return CC_TOKEN_FAT_ARROW;
+        }
+        return CC_TOKEN_ASSIGN;
+    case '!':
+        if (second == '=') {
+            *out_width = 2;
+            return CC_TOKEN_NE;
+        }
+        return CC_TOKEN_NOT;
+    case '<':
+        if (second == '<') {
+            if (third == '=') {
+                *out_width = 3;
+                return CC_TOKEN_SHIFT_LEFT_ASSIGN;
+            }
+            *out_width = 2;
+            return CC_TOKEN_SHIFT_LEFT;
+        }
+        if (second == '=') {
+            *out_width = 2;
+            return CC_TOKEN_LE;
+        }
+        return CC_TOKEN_LT;
+    case '>':
+        if (second == '>') {
+            if (third == '=') {
+                *out_width = 3;
+                return CC_TOKEN_SHIFT_RIGHT_ASSIGN;
+            }
+            *out_width = 2;
+            return CC_TOKEN_SHIFT_RIGHT;
+        }
+        if (second == '=') {
+            *out_width = 2;
+            return CC_TOKEN_GE;
+        }
+        return CC_TOKEN_GT;
+    case '&':
+        if (second == '&') {
+            *out_width = 2;
+            return CC_TOKEN_AND_AND;
+        }
+        if (second == '=') {
+            *out_width = 2;
+            return CC_TOKEN_AMP_ASSIGN;
+        }
+        return CC_TOKEN_AMP;
+    case '|':
+        if (second == '|') {
+            *out_width = 2;
+            return CC_TOKEN_OR_OR;
+        }
+        if (second == '=') {
+            *out_width = 2;
+            return CC_TOKEN_PIPE_ASSIGN;
+        }
+        return CC_TOKEN_PIPE;
+    case '^':
+        if (second == '=') {
+            *out_width = 2;
+            return CC_TOKEN_CARET_ASSIGN;
+        }
+        return CC_TOKEN_CARET;
+    case '~':
+        return CC_TOKEN_TILDE;
+    case '(':
+        return CC_TOKEN_LPAREN;
+    case ')':
+        return CC_TOKEN_RPAREN;
+    case '{':
+        return CC_TOKEN_LBRACE;
+    case '}':
+        return CC_TOKEN_RBRACE;
+    case '[':
+        return CC_TOKEN_LBRACKET;
+    case ']':
+        return CC_TOKEN_RBRACKET;
+    case ',':
+        return CC_TOKEN_COMMA;
+    case ';':
+        return CC_TOKEN_SEMICOLON;
+    case ':':
+        return CC_TOKEN_COLON;
+    case '.':
+        if (second == '.') {
+            if (third == '.') {
+                *out_width = 3;
+                return CC_TOKEN_ELLIPSIS;
+            }
+            if (third == '=') {
+                *out_width = 3;
+                return CC_TOKEN_DOT_DOT_EQUAL;
+            }
+            *out_width = 2;
+            return CC_TOKEN_DOT_DOT;
+        }
+        return CC_TOKEN_DOT;
+    case '?':
+        return CC_TOKEN_QUESTION;
+    case '@':
+        return CC_TOKEN_AT;
+    default:
+        return CC_TOKEN_INVALID;
+    }
+}
+
 void cc_lexer_init(CcLexer *lexer, const CcSourceFile *file, CcFileId file_id)
 {
     if (lexer == NULL) return;
@@ -129,10 +305,13 @@ CcToken cc_lexer_next(CcLexer *lexer)
         );
     }
 
-    lexer->offset++;
+    size_t width = 0;
+    CcTokenKind kind = scan_symbol(file, lexer->offset, &width);
+
+    lexer->offset += width;
 
     return make_token(
-        CC_TOKEN_INVALID,
+        kind,
         lexer->file_id,
         start,
         (uint32_t)lexer->offset

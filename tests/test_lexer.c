@@ -156,6 +156,135 @@ static void test_all_keywords(void)
     fixture_destroy(&fixture);
 }
 
+static void test_symbols(void)
+{
+    static const char *const text =
+        "( ) { } [ ] , ; : . -> => ? .. ..= ... @ "
+        "+ - * / % +% -% *% "
+        "== != < <= > >= "
+        "&& || ! "
+        "& | ^ ~ << >> "
+        "= += -= *= /= %= &= |= ^= <<= >>=";
+
+    static const CcTokenKind expected[] = {
+        CC_TOKEN_LPAREN,
+        CC_TOKEN_RPAREN,
+        CC_TOKEN_LBRACE,
+        CC_TOKEN_RBRACE,
+        CC_TOKEN_LBRACKET,
+        CC_TOKEN_RBRACKET,
+        CC_TOKEN_COMMA,
+        CC_TOKEN_SEMICOLON,
+        CC_TOKEN_COLON,
+        CC_TOKEN_DOT,
+        CC_TOKEN_ARROW,
+        CC_TOKEN_FAT_ARROW,
+        CC_TOKEN_QUESTION,
+        CC_TOKEN_DOT_DOT,
+        CC_TOKEN_DOT_DOT_EQUAL,
+        CC_TOKEN_ELLIPSIS,
+        CC_TOKEN_AT,
+        CC_TOKEN_PLUS,
+        CC_TOKEN_MINUS,
+        CC_TOKEN_STAR,
+        CC_TOKEN_SLASH,
+        CC_TOKEN_PERCENT,
+        CC_TOKEN_PLUS_PERCENT,
+        CC_TOKEN_MINUS_PERCENT,
+        CC_TOKEN_STAR_PERCENT,
+        CC_TOKEN_EQ,
+        CC_TOKEN_NE,
+        CC_TOKEN_LT,
+        CC_TOKEN_LE,
+        CC_TOKEN_GT,
+        CC_TOKEN_GE,
+        CC_TOKEN_AND_AND,
+        CC_TOKEN_OR_OR,
+        CC_TOKEN_NOT,
+        CC_TOKEN_AMP,
+        CC_TOKEN_PIPE,
+        CC_TOKEN_CARET,
+        CC_TOKEN_TILDE,
+        CC_TOKEN_SHIFT_LEFT,
+        CC_TOKEN_SHIFT_RIGHT,
+        CC_TOKEN_ASSIGN,
+        CC_TOKEN_PLUS_ASSIGN,
+        CC_TOKEN_MINUS_ASSIGN,
+        CC_TOKEN_STAR_ASSIGN,
+        CC_TOKEN_SLASH_ASSIGN,
+        CC_TOKEN_PERCENT_ASSIGN,
+        CC_TOKEN_AMP_ASSIGN,
+        CC_TOKEN_PIPE_ASSIGN,
+        CC_TOKEN_CARET_ASSIGN,
+        CC_TOKEN_SHIFT_LEFT_ASSIGN,
+        CC_TOKEN_SHIFT_RIGHT_ASSIGN
+    };
+
+    LexerFixture fixture;
+
+    fixture_init(&fixture, text);
+
+    for (size_t i = 0; i < sizeof(expected) / sizeof(expected[0]); i++) {
+        CcToken token = cc_lexer_next(&fixture.lexer);
+
+        assert(token.kind == expected[i]);
+    }
+
+    CcToken token = cc_lexer_next(&fixture.lexer);
+
+    assert(token.kind == CC_TOKEN_EOF);
+    assert(token.span.start == strlen(text));
+    assert(token.span.end == strlen(text));
+
+    fixture_destroy(&fixture);
+}
+
+static void test_longest_match(void)
+{
+    static const char *const text = "a>>=b a<<=b a..=b a...b a->b a....b";
+
+    static const struct {
+        CcTokenKind kind;
+        size_t start;
+        size_t end;
+    } expected[] = {
+        { CC_TOKEN_IDENTIFIER, 0, 1 },
+        { CC_TOKEN_SHIFT_RIGHT_ASSIGN, 1, 4 },
+        { CC_TOKEN_IDENTIFIER, 4, 5 },
+        { CC_TOKEN_IDENTIFIER, 6, 7 },
+        { CC_TOKEN_SHIFT_LEFT_ASSIGN, 7, 10 },
+        { CC_TOKEN_IDENTIFIER, 10, 11 },
+        { CC_TOKEN_IDENTIFIER, 12, 13 },
+        { CC_TOKEN_DOT_DOT_EQUAL, 13, 16 },
+        { CC_TOKEN_IDENTIFIER, 16, 17 },
+        { CC_TOKEN_IDENTIFIER, 18, 19 },
+        { CC_TOKEN_ELLIPSIS, 19, 22 },
+        { CC_TOKEN_IDENTIFIER, 22, 23 },
+        { CC_TOKEN_IDENTIFIER, 24, 25 },
+        { CC_TOKEN_ARROW, 25, 27 },
+        { CC_TOKEN_IDENTIFIER, 27, 28 },
+        { CC_TOKEN_IDENTIFIER, 29, 30 },
+        { CC_TOKEN_ELLIPSIS, 30, 33 },
+        { CC_TOKEN_DOT, 33, 34 },
+        { CC_TOKEN_IDENTIFIER, 34, 35 },
+        { CC_TOKEN_EOF, 35, 35 }
+    };
+
+    LexerFixture fixture;
+
+    fixture_init(&fixture, text);
+
+    for (size_t i = 0; i < sizeof(expected) / sizeof(expected[0]); i++) {
+        CcToken token = cc_lexer_next(&fixture.lexer);
+
+        assert(token.kind == expected[i].kind);
+        assert(token.span.start == expected[i].start);
+        assert(token.span.end == expected[i].end);
+    }
+
+    fixture_destroy(&fixture);
+}
+
 static void test_invalid_arguments(void)
 {
     CcToken token = cc_lexer_next(NULL);
@@ -202,9 +331,11 @@ int main(void)
     test_empty_and_whitespace();
     test_identifiers_and_keywords();
     test_all_keywords();
+    test_symbols();
+    test_longest_match();
     test_invalid_arguments();
     test_invalid_character();
 
-    puts("lexer identifiers: all tests passed");
+    puts("lexer: all tests passed");
     return 0;
 }
