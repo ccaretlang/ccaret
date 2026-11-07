@@ -17,7 +17,7 @@
 - [x] UTF-8 validation and diagnostics.
 - [x] Token enum covering the agreed lexical inventory.
 - [x] Handwritten lexer: whitespace, comments, identifiers, keywords, literals, punctuation, operators.
-- [ ] Accurate errors for bad escapes, invalid UTF-8 and unterminated constructs.
+- [x] Accurate errors for bad escapes, invalid UTF-8 and unterminated constructs.
 - [x] Unit tests for every token kind and ambiguity.
 - [x] `ccaret tokens path.caret` command.
 
