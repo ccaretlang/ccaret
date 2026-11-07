@@ -50,6 +50,20 @@ static void expect_token(const char *text, CcTokenKind kind)
     fixture_destroy(&fixture);
 }
 
+static void expect_lex_error(const char *text, CcLexErrorKind error)
+{
+    LexerFixture fixture;
+
+    fixture_init(&fixture, text);
+
+    CcToken token = cc_lexer_next(&fixture.lexer);
+
+    assert(token.kind == CC_TOKEN_INVALID);
+    assert(fixture.lexer.error == error);
+
+    fixture_destroy(&fixture);
+}
+
 static void test_empty_and_whitespace(void)
 {
     LexerFixture fixture;
@@ -833,6 +847,44 @@ static void test_token_kind_names(void)
     assert(strcmp(cc_token_kind_name(CC_TOKEN_AT), "AT") == 0);
 }
 
+static void test_lex_error_reasons(void)
+{
+    expect_lex_error("#", CC_LEX_ERROR_UNKNOWN_CHARACTER);
+    expect_lex_error("1_", CC_LEX_ERROR_INVALID_INTEGER);
+    expect_lex_error("0x", CC_LEX_ERROR_INVALID_INTEGER);
+    expect_lex_error("1e", CC_LEX_ERROR_INVALID_FLOAT);
+    expect_lex_error("1.5e+", CC_LEX_ERROR_INVALID_FLOAT);
+    expect_lex_error("\"\\q\"", CC_LEX_ERROR_INVALID_ESCAPE);
+    expect_lex_error("\"abc", CC_LEX_ERROR_UNTERMINATED_STRING);
+    expect_lex_error("'\\q'", CC_LEX_ERROR_INVALID_ESCAPE);
+    expect_lex_error("'A", CC_LEX_ERROR_UNTERMINATED_BYTE_LITERAL);
+    expect_lex_error("'AB'", CC_LEX_ERROR_INVALID_BYTE_LITERAL);
+    expect_lex_error("''", CC_LEX_ERROR_INVALID_BYTE_LITERAL);
+    expect_lex_error("/*", CC_LEX_ERROR_UNTERMINATED_COMMENT);
+
+    LexerFixture fixture;
+
+    fixture_init(&fixture, "1_ fn");
+
+    CcToken token = cc_lexer_next(&fixture.lexer);
+
+    assert(token.kind == CC_TOKEN_INVALID);
+    assert(fixture.lexer.error == CC_LEX_ERROR_INVALID_INTEGER);
+
+    token = cc_lexer_next(&fixture.lexer);
+    assert(token.kind == CC_TOKEN_KW_FN);
+    assert(fixture.lexer.error == CC_LEX_ERROR_NONE);
+
+    fixture_destroy(&fixture);
+
+    assert(strcmp(cc_lex_error_message(CC_LEX_ERROR_NONE),
+                  "no lexical error") == 0);
+    assert(strcmp(cc_lex_error_message(CC_LEX_ERROR_INVALID_ESCAPE),
+                  "invalid escape sequence") == 0);
+    assert(strcmp(cc_lex_error_message(CC_LEX_ERROR_UNTERMINATED_COMMENT),
+                  "unterminated block comment") == 0);
+}
+
 static void test_invalid_arguments(void)
 {
     CcToken token = cc_lexer_next(NULL);
@@ -898,6 +950,7 @@ int main(void)
     test_unterminated_literals();
     test_multiple_files();
     test_token_kind_names();
+    test_lex_error_reasons();
     test_invalid_arguments();
     test_invalid_character();
 

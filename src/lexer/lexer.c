@@ -284,10 +284,14 @@ static CcToken scan_number(CcLexer *lexer)
 
     CcTokenKind kind = CC_TOKEN_INTEGER_LITERAL;
 
-    if (!valid)
+    if (!valid) {
         kind = CC_TOKEN_INVALID;
-    else if (is_float)
+        lexer->error = is_float
+            ? CC_LEX_ERROR_INVALID_FLOAT
+            : CC_LEX_ERROR_INVALID_INTEGER;
+    } else if (is_float) {
         kind = CC_TOKEN_FLOAT_LITERAL;
+    }
 
     return make_token(
         kind,
@@ -556,7 +560,7 @@ static CcToken scan_string(CcLexer *lexer, size_t prefix_length)
     const CcSourceFile *file = lexer->file;
     size_t start = lexer->offset;
     size_t offset = start + prefix_length + 1;
-    bool valid = true;
+    CcLexErrorKind error = CC_LEX_ERROR_NONE;
     bool terminated = false;
 
     while (offset < file->length) {
@@ -574,15 +578,16 @@ static CcToken scan_string(CcLexer *lexer, size_t prefix_length)
         if (c == '\\') {
             CcEscape escape = scan_escape(file, &offset);
 
-            if (!escape.valid)
-                valid = false;
+            if (!escape.valid && error == CC_LEX_ERROR_NONE)
+                error = CC_LEX_ERROR_INVALID_ESCAPE;
             continue;
         }
 
         offset++;
     }
 
-    if (!terminated) valid = false;
+    if (!terminated && error == CC_LEX_ERROR_NONE)
+        error = CC_LEX_ERROR_UNTERMINATED_STRING;
 
     lexer->offset = offset;
 
@@ -590,7 +595,10 @@ static CcToken scan_string(CcLexer *lexer, size_t prefix_length)
         ? CC_TOKEN_STRING_LITERAL
         : CC_TOKEN_C_STRING_LITERAL;
 
-    if (!valid) kind = CC_TOKEN_INVALID;
+    if (error != CC_LEX_ERROR_NONE) {
+        kind = CC_TOKEN_INVALID;
+        lexer->error = error;
+    }
 
     return make_token(
         kind,
@@ -606,7 +614,7 @@ static CcToken scan_byte_literal(CcLexer *lexer)
     size_t start = lexer->offset;
     size_t offset = start + 1;
     size_t byte_count = 0;
-    bool valid = true;
+    CcLexErrorKind error = CC_LEX_ERROR_NONE;
     bool terminated = false;
 
     while (offset < file->length) {
@@ -624,10 +632,12 @@ static CcToken scan_byte_literal(CcLexer *lexer)
         if (c == '\\') {
             CcEscape escape = scan_escape(file, &offset);
 
-            if (!escape.valid)
-                valid = false;
-            else
+            if (!escape.valid) {
+                if (error == CC_LEX_ERROR_NONE)
+                    error = CC_LEX_ERROR_INVALID_ESCAPE;
+            } else {
                 byte_count += escape.byte_count;
+            }
             continue;
         }
 
@@ -635,12 +645,25 @@ static CcToken scan_byte_literal(CcLexer *lexer)
         offset++;
     }
 
-    if (!terminated || byte_count != 1) valid = false;
+    if (!terminated) {
+        if (error == CC_LEX_ERROR_NONE)
+            error = CC_LEX_ERROR_UNTERMINATED_BYTE_LITERAL;
+    } else if (byte_count != 1) {
+        if (error == CC_LEX_ERROR_NONE)
+            error = CC_LEX_ERROR_INVALID_BYTE_LITERAL;
+    }
 
     lexer->offset = offset;
 
+    CcTokenKind kind = CC_TOKEN_BYTE_LITERAL;
+
+    if (error != CC_LEX_ERROR_NONE) {
+        kind = CC_TOKEN_INVALID;
+        lexer->error = error;
+    }
+
     return make_token(
-        valid ? CC_TOKEN_BYTE_LITERAL : CC_TOKEN_INVALID,
+        kind,
         lexer->file_id,
         (uint32_t)start,
         (uint32_t)offset
@@ -654,12 +677,15 @@ void cc_lexer_init(CcLexer *lexer, const CcSourceFile *file, CcFileId file_id)
     lexer->file = file;
     lexer->file_id = file_id;
     lexer->offset = 0;
+    lexer->error = CC_LEX_ERROR_NONE;
 }
 
 CcToken cc_lexer_next(CcLexer *lexer)
 {
     if (lexer == NULL || lexer->file == NULL)
         return make_token(CC_TOKEN_INVALID, CC_FILE_ID_INVALID, 0, 0);
+
+    lexer->error = CC_LEX_ERROR_NONE;
 
     const CcSourceFile *file = lexer->file;
 
@@ -680,13 +706,15 @@ CcToken cc_lexer_next(CcLexer *lexer)
         if (c == '/' && file->bytes[lexer->offset + 1] == '*') {
             size_t comment_start = lexer->offset;
 
-            if (!skip_block_comment(file, &lexer->offset))
+            if (!skip_block_comment(file, &lexer->offset)) {
+                lexer->error = CC_LEX_ERROR_UNTERMINATED_COMMENT;
                 return make_token(
                     CC_TOKEN_INVALID,
                     lexer->file_id,
                     (uint32_t)comment_start,
                     (uint32_t)lexer->offset
                 );
+            }
 
             continue;
         }
@@ -733,6 +761,9 @@ CcToken cc_lexer_next(CcLexer *lexer)
 
     size_t width = 0;
     CcTokenKind kind = scan_symbol(file, lexer->offset, &width);
+
+    if (kind == CC_TOKEN_INVALID)
+        lexer->error = CC_LEX_ERROR_UNKNOWN_CHARACTER;
 
     lexer->offset += width;
 
@@ -842,4 +873,25 @@ const char *cc_token_kind_name(CcTokenKind kind)
     }
 
     return "UNKNOWN";
+}
+
+const char *cc_lex_error_message(CcLexErrorKind error)
+{
+    switch (error) {
+    case CC_LEX_ERROR_NONE: return "no lexical error";
+    case CC_LEX_ERROR_UNKNOWN_CHARACTER: return "unknown character";
+    case CC_LEX_ERROR_INVALID_INTEGER: return "malformed integer literal";
+    case CC_LEX_ERROR_INVALID_FLOAT: return "malformed floating literal";
+    case CC_LEX_ERROR_INVALID_ESCAPE: return "invalid escape sequence";
+    case CC_LEX_ERROR_UNTERMINATED_STRING:
+        return "unterminated string literal";
+    case CC_LEX_ERROR_UNTERMINATED_BYTE_LITERAL:
+        return "unterminated byte literal";
+    case CC_LEX_ERROR_INVALID_BYTE_LITERAL:
+        return "byte literal must encode exactly one byte";
+    case CC_LEX_ERROR_UNTERMINATED_COMMENT:
+        return "unterminated block comment";
+    }
+
+    return "unknown lexical error";
 }

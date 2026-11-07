@@ -1,6 +1,7 @@
 #include "lexer/lexer.h"
 #include "source/source.h"
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -63,6 +64,7 @@ static int run_tokens(const char *path)
     CcSourceManager sources;
     CcSourceError error = {0};
     CcFileId file_id;
+    bool had_error = false;
 
     cc_source_manager_init(&sources);
 
@@ -101,11 +103,17 @@ static int run_tokens(const char *path)
                       (size_t)(token.span.end - token.span.start));
         putchar('\n');
 
+        if (token.kind == CC_TOKEN_INVALID) {
+            fprintf(stderr, "%s:%zu:%zu: error: %s\n", path, line, column,
+                    cc_lex_error_message(lexer.error));
+            had_error = true;
+        }
+
         if (token.kind == CC_TOKEN_EOF) break;
     }
 
     cc_source_manager_destroy(&sources);
-    return 0;
+    return had_error ? 1 : 0;
 }
 
 int main(int argc, char **argv)

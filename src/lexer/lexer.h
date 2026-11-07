@@ -120,14 +120,28 @@ typedef struct {
     CcSourceSpan span;
 } CcToken;
 
+typedef enum {
+    CC_LEX_ERROR_NONE = 0,
+    CC_LEX_ERROR_UNKNOWN_CHARACTER,
+    CC_LEX_ERROR_INVALID_INTEGER,
+    CC_LEX_ERROR_INVALID_FLOAT,
+    CC_LEX_ERROR_INVALID_ESCAPE,
+    CC_LEX_ERROR_UNTERMINATED_STRING,
+    CC_LEX_ERROR_UNTERMINATED_BYTE_LITERAL,
+    CC_LEX_ERROR_INVALID_BYTE_LITERAL,
+    CC_LEX_ERROR_UNTERMINATED_COMMENT
+} CcLexErrorKind;
+
 typedef struct {
     const CcSourceFile *file;
     CcFileId file_id;
     size_t offset;
+    CcLexErrorKind error;
 } CcLexer;
 
 void cc_lexer_init(CcLexer *lexer, const CcSourceFile *file, CcFileId file_id);
 CcToken cc_lexer_next(CcLexer *lexer);
 const char *cc_token_kind_name(CcTokenKind kind);
+const char *cc_lex_error_message(CcLexErrorKind error);
 
 #endif
