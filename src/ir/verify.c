@@ -78,8 +78,9 @@ static bool validate_instruction(const CcIrModule *module,
             return fail(error, i->span, "IR verifier: bad store");
         break;
     case CC_IR_NEG:
-    case CC_IR_NOT: {
-        CcIrType operand = i->op == CC_IR_NEG ? CC_IR_I32 : CC_IR_BOOL;
+    case CC_IR_NOT:
+    case CC_IR_BIT_NOT: {
+        CcIrType operand = i->op == CC_IR_NOT ? CC_IR_BOOL : CC_IR_I32;
         if (i->type != operand || !USE(i->lhs, operand))
             return fail(error, i->span, "IR verifier: invalid unary operation");
         break;
@@ -89,11 +90,18 @@ static bool validate_instruction(const CcIrModule *module,
     case CC_IR_MUL:
     case CC_IR_DIV:
     case CC_IR_MOD:
+    case CC_IR_WRAP_ADD:
+    case CC_IR_WRAP_SUB:
+    case CC_IR_WRAP_MUL:
+    case CC_IR_BIT_AND:
+    case CC_IR_BIT_OR:
+    case CC_IR_BIT_XOR:
     case CC_IR_LT:
     case CC_IR_LE:
     case CC_IR_GT:
     case CC_IR_GE: {
-        bool compare = i->op >= CC_IR_LT;
+        bool compare = i->op == CC_IR_LT || i->op == CC_IR_LE ||
+                       i->op == CC_IR_GT || i->op == CC_IR_GE;
         if (i->type != (compare ? CC_IR_BOOL : CC_IR_I32) ||
             !USE(i->lhs, CC_IR_I32) || !USE(i->rhs, CC_IR_I32))
             return fail(error, i->span, "IR verifier: invalid arithmetic");

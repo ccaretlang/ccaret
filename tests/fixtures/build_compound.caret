@@ -1,0 +1,21 @@
+fn step(flag: bool) -> i32 {
+    if flag {
+        return 4;
+    }
+    return 5;
+}
+
+fn main() -> i32 {
+    var a: i32 = 10;
+    a += 5;
+    a *= 3;
+    a -= 13;
+    a /= 4;
+    a %= 6;
+    a |= 8;
+    a ^= 3;
+    a &= 7;
+    var b: i32 = 2;
+    b += step(false || true);
+    return a + b + 35;
+}

@@ -783,6 +783,16 @@ static SemType *check_expr(SemContext *ctx, const CcExpression *expr,
 
             return expected;
         }
+        if (op == CC_AST_UNARY_OPERATOR_MINUS &&
+            expr->unary.operand->kind == CC_AST_EXPRESSION_INTEGER_LITERAL &&
+            expected == NULL &&
+            !expr->unary.operand->integer_literal.overflow &&
+            expr->unary.operand->integer_literal.value ==
+                (uint64_t)INT32_MAX + 1) {
+            /* The default i32 minimum is representable as a negative
+             * literal even though its unsigned magnitude exceeds INT32_MAX. */
+            return builtin(ctx, PRIM_I32, expr->span);
+        }
 
         SemType *operand = check_expr(ctx, expr->unary.operand,
                                       expected != NULL &&

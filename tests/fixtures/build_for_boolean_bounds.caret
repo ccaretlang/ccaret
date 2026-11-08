@@ -1,0 +1,14 @@
+fn pick(flag: bool, n: i32) -> i32 {
+    if flag {
+        return n;
+    }
+    return 0;
+}
+
+fn main() -> i32 {
+    var sum: i32 = 33;
+    for i in pick(false || true, 2)..=pick(true && true, 4) {
+        sum += i;
+    }
+    return sum;
+}

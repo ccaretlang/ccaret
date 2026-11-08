@@ -43,6 +43,10 @@
 
 - [x] `let`, `var`, plain assignments, conditionals and loops for the
       supported IR subset.
+- [x] Exclusive/inclusive `i32` `for` ranges, scoped iteration variables,
+      `break`/`continue` and boundary-safe stepping.
+- [x] Checked `i32` compound arithmetic, bitwise expressions/updates and
+      explicitly wrapping `i32` arithmetic (signed shifts remain pending).
 - [ ] Structs, fixed arrays, module imports and visibility.
 - [ ] Raw pointers, `unsafe`, C ABI declarations and function pointers.
 - [ ] Slices, bounds checks and layout intrinsics.

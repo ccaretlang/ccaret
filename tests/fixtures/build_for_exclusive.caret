@@ -1,0 +1,15 @@
+fn start() -> i32 {
+    return 2;
+}
+
+fn finish() -> i32 {
+    return 6;
+}
+
+fn main() -> i32 {
+    var sum: i32 = 0;
+    for i in start()..finish() {
+        sum += i;
+    }
+    return sum;
+}

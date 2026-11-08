@@ -46,6 +46,17 @@ build_run tuple_shortcircuit 42
 build_run optional 42
 build_run optional_nested 42
 build_run tuple_bounds 42
+build_run for_exclusive 14
+build_run for_inclusive 15
+build_run for_nested 20
+build_run for_boundaries 42
+build_run for_continue_max 42
+build_run for_scoping 42
+build_run for_boolean_bounds 42
+build_run for_aggregate 42
+build_run compound 42
+build_run bitwise 42
+build_run wrapping 42
 
 "$binary" build "$root/tests/fixtures/check_valid.caret" -o "$out/divmod"
 run_exit 5 "$out/divmod"
@@ -62,6 +73,22 @@ grep -q 'some ' "$out/optional_nested.ir"
 grep -q 'none' "$out/optional_nested.ir"
 grep -q 'bool has;' "$out/compiled_optional.c"
 grep -q 'uint8_t _unit;' "$out/compiled_tuple_unit.c"
+
+"$binary" emit-ir "$root/tests/fixtures/build_for_boundaries.caret" \
+    -o "$out/for_boundaries.ir"
+grep -q 'le %' "$out/for_boundaries.ir"
+grep -q 'condbr' "$out/for_boundaries.ir"
+"$binary" emit-ir "$root/tests/fixtures/build_wrapping.caret" \
+    -o "$out/wrapping.ir"
+grep -q 'add.wrap' "$out/wrapping.ir"
+grep -q 'sub.wrap' "$out/wrapping.ir"
+grep -q 'mul.wrap' "$out/wrapping.ir"
+"$binary" emit-ir "$root/tests/fixtures/build_bitwise.caret" \
+    -o "$out/bitwise.ir"
+grep -q 'bit.not' "$out/bitwise.ir"
+grep -q 'bit.and' "$out/bitwise.ir"
+grep -q 'bit.or' "$out/bitwise.ir"
+grep -q 'bit.xor' "$out/bitwise.ir"
 
 "$binary" emit-ir "$root/tests/fixtures/build_hello.caret" \
     -o "$out/hello.ir"
@@ -83,7 +110,9 @@ run_exit 42 "$out/emit_hello"
 
 for case in hello call factorial while shortcircuit boolean \
     tuple_nested tuple_members tuple_unit tuple_var tuple_forward tuple_shortcircuit \
-    optional optional_nested tuple_bounds; do
+    optional optional_nested tuple_bounds \
+    for_exclusive for_inclusive for_nested for_boundaries for_continue_max for_scoping \
+    for_boolean_bounds for_aggregate compound bitwise wrapping; do
     gcc -std=c17 -O2 -Wall -Wextra -Wpedantic -Werror \
         "$out/compiled_$case.c" -o "$out/optimized_$case"
     case "$case" in
@@ -91,6 +120,9 @@ for case in hello call factorial while shortcircuit boolean \
         while) expected=30 ;;
         tuple_nested) expected=31 ;;
         tuple_members) expected=21 ;;
+        for_exclusive) expected=14 ;;
+        for_inclusive) expected=15 ;;
+        for_nested) expected=20 ;;
         *) expected=42 ;;
     esac
     run_exit "$expected" "$out/optimized_$case"
@@ -112,7 +144,8 @@ run_exit 42 "$out/-leading-name"
     "$root/tests/fixtures/build_hello.caret" -o "@literal-name" )
 run_exit 42 "$out/@literal-name"
 
-for case in overflow divzero div_overflow neg_overflow; do
+for case in overflow divzero div_overflow neg_overflow \
+    compound_overflow compound_divzero; do
     "$binary" build "$root/tests/fixtures/build_$case.caret" \
         -o "$out/trap_$case"
     set +e
@@ -125,16 +158,26 @@ for case in overflow divzero div_overflow neg_overflow; do
     fi
 done
 
-gcc -std=c17 -O2 -Wall -Wextra -Wpedantic -Werror \
-    "$out/trap_overflow.c" -o "$out/optimized_overflow"
-set +e
-( "$out/optimized_overflow" > /dev/null 2>&1 ) 2> /dev/null
-optimized_status=$?
-set -e
-if [ "$optimized_status" -ne 134 ]; then
-    echo "build: optimized overflow must abort (134), got $optimized_status" >&2
+for case in overflow compound_overflow compound_divzero; do
+    gcc -std=c17 -O2 -Wall -Wextra -Wpedantic -Werror \
+        "$out/trap_$case.c" -o "$out/optimized_trap_$case"
+    set +e
+    ( "$out/optimized_trap_$case" > /dev/null 2>&1 ) 2> /dev/null
+    optimized_status=$?
+    set -e
+    if [ "$optimized_status" -ne 134 ]; then
+        echo "build: optimized $case must abort (134), got $optimized_status" >&2
+        exit 1
+    fi
+done
+
+if "$binary" build "$root/tests/fixtures/build_shift_unsupported.caret" \
+    -o "$out/shift_unsupported" > /dev/null 2> "$out/shift_unsupported.err"; then
+    echo "build: signed shifts must remain unsupported until defined" >&2
     exit 1
 fi
+grep -q 'error: IR: IR lowering: binary operator not yet supported' \
+    "$out/shift_unsupported.err"
 
 if "$binary" build "$root/tests/fixtures/build_unsupported.caret" \
     -o "$out/unsupported" > /dev/null 2> "$out/unsupported.err"; then

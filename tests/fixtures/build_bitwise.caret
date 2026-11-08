@@ -1,0 +1,9 @@
+fn main() -> i32 {
+    let all: i32 = ~0;
+    let mask: i32 = (6 & 3) | (4 ^ 1);
+    let sign: i32 = ~(-2147483648);
+    if all == -1 && mask == 7 && sign == 2147483647 {
+        return 42;
+    }
+    return 0;
+}

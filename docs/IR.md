@@ -33,8 +33,8 @@ prints type definitions such as `type t3 = (i32, bool)` and
 | Category | Operations |
 |---|---|
 | Values | `const.i32`, `const.bool` |
-| Arithmetic | Checked `add`, `sub`, `mul`, `div`, `mod`, unary `neg` |
-| Logic | `not`, equality and ordered comparisons |
+| Arithmetic | Checked `add`, `sub`, `mul`, `div`, `mod`, unary `neg`; `add.wrap`, `sub.wrap`, `mul.wrap` for `i32` |
+| Logic | `not`, `bit.not`, `bit.and`, `bit.or`, `bit.xor`, equality and ordered comparisons |
 | Locals | `load`, `store` with typed slots |
 | Aggregates | `tuple` (construct), `tuple.get` (project numbered member) |
 | Tagged values | `some`, `none` (construct optional values) |
@@ -45,6 +45,17 @@ Tuple destructuring lowers to a sequence of typed projections and slot
 bindings. Tuple elements and call arguments are evaluated left-to-right
 and temporarily stored in slots before aggregate construction or calls.
 This also works when a child expression emits new control-flow blocks.
+Compound assignments preserve the old target value in a slot across
+evaluation of the right-hand side, then perform a checked arithmetic or
+bitwise operation and write the result once.
+
+`for` ranges are lowered from syntax to CFG blocks, not represented as
+first-class range values in the backend. Start and end expressions are
+evaluated left-to-right exactly once into typed `i32` slots. The loop
+condition is `index < end` or `index <= end`; the `continue` edge
+passes through an increment block. Inclusive loops test `index == end`
+before incrementing so the maximum signed endpoint never overflows.
+The immutable index binding has loop-local scope.
 Optional unwrapping, `match`, `try`, `defer`, and their control-flow
 lowerings remain future work. Boolean short-circuiting appears explicitly
 in the CFG. Traps must not become C undefined behavior.
@@ -89,7 +100,9 @@ Every backend receives a documented IR form and must preserve observable C^ sema
 ## Tests and open questions
 
 Tests cover `return 42`, calls, recursion, arithmetic, branches, loops,
-short-circuit control flow, tuple/optional propagation, the executable
+short-circuit control flow, exclusive/inclusive range loops and edge
+values, compound assignment, bitwise/wrapping arithmetic,
+tuple/optional propagation, the executable
 `divmod` tuple-return example, and intentionally corrupted IR. A stable
 external ABI for aggregates, `match`, cleanup, aliasing and full IR
 optimization remain future work.

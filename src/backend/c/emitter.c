@@ -85,6 +85,8 @@ static void emit_instruction(FILE *out, const CcIrInstruction *i)
         fprintf(out, "s%u = r%u", i->slot, i->lhs); break;
     case CC_IR_NEG: fprintf(out, "ccrt_neg_i32(r%u)", i->lhs); break;
     case CC_IR_NOT: fprintf(out, "!r%u", i->lhs); break;
+    case CC_IR_BIT_NOT:
+        fprintf(out, "ccrt_bit_not_i32(r%u)", i->lhs); break;
     case CC_IR_ADD:
     case CC_IR_SUB:
     case CC_IR_MUL:
@@ -94,6 +96,21 @@ static void emit_instruction(FILE *out, const CcIrInstruction *i)
                            i->op == CC_IR_SUB ? "sub" :
                            i->op == CC_IR_MUL ? "mul" :
                            i->op == CC_IR_DIV ? "div" : "mod";
+        fprintf(out, "ccrt_%s_i32(r%u, r%u)", name, i->lhs, i->rhs);
+        break;
+    }
+    case CC_IR_WRAP_ADD:
+    case CC_IR_WRAP_SUB:
+    case CC_IR_WRAP_MUL:
+    case CC_IR_BIT_AND:
+    case CC_IR_BIT_OR:
+    case CC_IR_BIT_XOR: {
+        const char *name =
+            i->op == CC_IR_WRAP_ADD ? "wrap_add" :
+            i->op == CC_IR_WRAP_SUB ? "wrap_sub" :
+            i->op == CC_IR_WRAP_MUL ? "wrap_mul" :
+            i->op == CC_IR_BIT_AND ? "bit_and" :
+            i->op == CC_IR_BIT_OR ? "bit_or" : "bit_xor";
         fprintf(out, "ccrt_%s_i32(r%u, r%u)", name, i->lhs, i->rhs);
         break;
     }
@@ -262,6 +279,34 @@ bool cc_c_emit(FILE *out, const CcIrModule *module, CcIrError *error)
           "int32_t ccrt_mod_i32(int32_t a, int32_t b) {\n"
           "  if (b == 0 || (a == INT32_MIN && b == -1)) abort();\n"
           "  return a % b;\n"
+          "}\n"
+          "/* Reconstruct a signed i32 value without out-of-range unsigned-to-signed casts. */\n"
+          "int32_t ccrt_from_bits_i32(uint32_t bits) {\n"
+          "  int64_t value = (int64_t)bits;\n"
+          "  if (value > INT32_MAX) value -= INT64_C(4294967296);\n"
+          "  return (int32_t)value;\n"
+          "}\n"
+          "int32_t ccrt_wrap_add_i32(int32_t a, int32_t b) {\n"
+          "  return ccrt_from_bits_i32((uint32_t)a + (uint32_t)b);\n"
+          "}\n"
+          "int32_t ccrt_wrap_sub_i32(int32_t a, int32_t b) {\n"
+          "  return ccrt_from_bits_i32((uint32_t)a - (uint32_t)b);\n"
+          "}\n"
+          "int32_t ccrt_wrap_mul_i32(int32_t a, int32_t b) {\n"
+          "  uint64_t product = (uint64_t)(uint32_t)a * (uint64_t)(uint32_t)b;\n"
+          "  return ccrt_from_bits_i32((uint32_t)product);\n"
+          "}\n"
+          "int32_t ccrt_bit_and_i32(int32_t a, int32_t b) {\n"
+          "  return ccrt_from_bits_i32((uint32_t)a & (uint32_t)b);\n"
+          "}\n"
+          "int32_t ccrt_bit_or_i32(int32_t a, int32_t b) {\n"
+          "  return ccrt_from_bits_i32((uint32_t)a | (uint32_t)b);\n"
+          "}\n"
+          "int32_t ccrt_bit_xor_i32(int32_t a, int32_t b) {\n"
+          "  return ccrt_from_bits_i32((uint32_t)a ^ (uint32_t)b);\n"
+          "}\n"
+          "int32_t ccrt_bit_not_i32(int32_t a) {\n"
+          "  return ccrt_from_bits_i32(~(uint32_t)a);\n"
           "}\n\n", out);
 
     emit_type_definitions(out, module);

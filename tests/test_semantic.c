@@ -156,7 +156,13 @@ static void test_valid_programs(void)
         " if x == 0 { return 0; } else { return f(x - 1); } }",
         "fn f(a: (i32, i32)) -> i32 { return a.0 + a.1; }",
         "fn f() { let () = (); }",
-        "fn f() -> ?*const u8 { return none; }"
+        "fn f() -> ?*const u8 { return none; }",
+        "fn f() -> i32 { let m = -2147483648; return m; }",
+        "fn f() -> i32 { var sum: i32 = 0;"
+        " for i in -2147483648..=-2147483647 { sum += 1; }"
+        " return sum; }",
+        "fn f() -> i32 { var n: i32 = 1; n &= 3; n ^= 2;"
+        " n |= 4; return ~n + (2147483647 +% 1); }"
     };
 
     for (size_t i = 0; i < sizeof(programs) / sizeof(programs[0]); i++)
@@ -254,6 +260,12 @@ static void test_invalid_programs(void)
           "type mismatch", "a" },
         { "fn f() { for i in 1 { return; } }",
           "for expects an integer range", "1" },
+        { "fn f() { for i in 0..4 { i += 1; } }",
+          "cannot assign to immutable binding", "i" },
+        { "fn f() { var n: bool = true; n &= false; }",
+          "compound assignment requires a numeric variable", "n" },
+        { "fn f() { let n: i32 = ~true; }",
+          "type mismatch", "true" },
         { "fn f(x: void) {}", "parameter cannot have void type", "void" },
         { "fn f() { let x: void = (); }",
           "type mismatch: expected a tuple", "()" },

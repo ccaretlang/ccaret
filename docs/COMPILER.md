@@ -7,7 +7,8 @@ AST and parser, initial semantic checker, typed non-SSA IR with verifier,
 and a C17 backend. The `ccaret tokens`, `check`, `emit-ir`, `emit-c`
 and `build` commands work for their documented subset. Source programs
 using `i32`, `bool`, `void`, nested tuple values and optional
-`?T` construction/propagation (plus supported expressions/statements)
+`?T` construction/propagation, `i32` bitwise and wrapping arithmetic,
+checked compound updates and integer `for` ranges
 can become GCC-compiled executables. The frontend supports additional
 syntax and types that are **not yet lowerable**, including optional
 unwrapping/pattern matching. See

@@ -23,12 +23,20 @@ entry point is `fn main() -> i32`.
 ## Supported today
 
 - Scalar types `i32`, `bool`, `void` (including grouping parentheses
-  around a type), literal integers, boolean literals and unary `-`/`!`.
+  around a type), literal integers, boolean literals and unary `-`/`!`/`~`.
 - Checked `i32` `+`, `-`, `*`, `/` and `%`; equality and numeric
-  comparisons; boolean `&&`/`||` with short-circuit evaluation.
+  comparisons; boolean `&&`/`||` with short-circuit evaluation. Integer
+  bitwise `&`, `|`, `^` and explicit wrapping `+%`, `-%`, `*%`
+  are supported for `i32`.
 - Functions with typed parameters, forward and recursive calls, explicit
-  returns, local `let`/`var`, plain assignments, `if`/`else if`/
-  `else`, `while`, `loop`, `break`, `continue`.
+  returns, local `let`/`var`, assignments `=`, `+=`, `-=`, `*=`,
+  `/=`, `%=`, `&=`, `|=`, `^=` (compound assignment only on `i32`),
+  `if`/`else if`/`else`, `while`, `loop`, `break`, `continue`.
+- `for i in start..end` (exclusive) and `for i in start..=end`
+  (inclusive) for `i32` endpoints. Both bounds are evaluated exactly
+  once and in source order, and the index is immutable and scoped to
+  the loop body. `continue` performs the increment; `break` exits the
+  loop. Inclusive iteration at `INT32_MAX` stops without overflow.
 - Tuple literals and types (including `()` and `(T,)`), nested tuple
   members `value.0`/`value.1`, tuple parameters and returns,
   destructuring in `let`/`var`, and forwarding aggregate values through
@@ -53,14 +61,22 @@ multiplication and negation overflow, division by zero, and the
 `INT32_MIN / -1` case. Unreachable IR join blocks may contain explicit
 `trap` terminators; unreachable code is omitted from emitted C.
 
+For bootstrap `i32`, explicit wrapping operations and bitwise results
+use 32-bit unsigned arithmetic and reconstruct the signed value with a
+`int64_t` intermediate. This implements modulo `2^32` without
+relying on undefined C signed overflow or implementation-defined
+out-of-range unsigned-to-signed casts. Broader language-level
+wrapping/cast decisions remain open.
+
 ## Not yet supported by the backend
 
 Arrays, slices, pointers, floating-point values, user-defined types,
-`for` ranges, compound assignments and most bitwise operations have not
-yet been lowered. Optional inspection/unwrapping and pattern matching
-are not yet implemented. Some unsupported constructs already parse and
-type-check, but fail explicitly at IR lowering rather than producing a
-misleading executable.
+signed shifts (`<<`, `>>`, `<<=`, `>>=`) and multi-width integer
+arithmetic have not yet been lowered. Signed right-shift semantics
+are still open in the language specification. Optional
+inspection/unwrapping and pattern matching are not yet implemented.
+Some unsupported constructs already parse and type-check, but fail
+explicitly at IR lowering rather than producing a misleading executable.
 
 The C17 backend currently targets a hosted POSIX/GCC environment (the
 driver uses `posix_spawnp`/`waitpid`). Native Windows process launching,
@@ -73,7 +89,9 @@ be used for production or safety-critical compilation.
 suite, the CLI, and real GCC-compiled executables: literals, function
 calls, recursion, loops, short-circuiting, checked arithmetic traps,
 paths containing spaces, tuple returns/destructuring, `divmod`, nested
-aggregates and optional construction/propagation. Aggregate outputs are
-also compiled with strict C17 warnings at `-O2`. The IR unit suite
+aggregates, optional construction/propagation, both `for` range modes,
+boundaries and loop control flow, compound updates, and wrapping/bitwise
+arithmetic. These outputs are also compiled with strict C17 warnings at
+`-O2`. The IR unit suite
 deliberately mutates valid IR to test refusal of malformed instructions,
 types, constructors, projections and terminators.

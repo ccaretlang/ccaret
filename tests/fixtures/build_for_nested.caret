@@ -1,0 +1,15 @@
+fn main() -> i32 {
+    var sum: i32 = 0;
+    for i in (0..5) {
+        if i == 2 {
+            continue;
+        }
+        for j in 0..=3 {
+            if j == 2 {
+                break;
+            }
+            sum += i + j;
+        }
+    }
+    return sum;
+}

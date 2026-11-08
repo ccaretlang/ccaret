@@ -21,11 +21,18 @@ static const char *op_name(CcIrOpcode op)
     case CC_IR_STORE: return "store";
     case CC_IR_NEG: return "neg.checked";
     case CC_IR_NOT: return "not";
+    case CC_IR_BIT_NOT: return "bit.not";
     case CC_IR_ADD: return "add.checked";
     case CC_IR_SUB: return "sub.checked";
     case CC_IR_MUL: return "mul.checked";
     case CC_IR_DIV: return "div.checked";
     case CC_IR_MOD: return "mod.checked";
+    case CC_IR_WRAP_ADD: return "add.wrap";
+    case CC_IR_WRAP_SUB: return "sub.wrap";
+    case CC_IR_WRAP_MUL: return "mul.wrap";
+    case CC_IR_BIT_AND: return "bit.and";
+    case CC_IR_BIT_OR: return "bit.or";
+    case CC_IR_BIT_XOR: return "bit.xor";
     case CC_IR_EQ: return "eq";
     case CC_IR_NE: return "ne";
     case CC_IR_LT: return "lt";
@@ -94,6 +101,7 @@ bool cc_ir_print(FILE *out, const CcIrModule *module)
                     fprintf(out, " slot%u, %%%u", i->slot, i->lhs); break;
                 case CC_IR_NEG:
                 case CC_IR_NOT:
+                case CC_IR_BIT_NOT:
                     fprintf(out, " %%%u", i->lhs); break;
                 case CC_IR_CALL:
                     fprintf(out, " @%u(", i->callee);

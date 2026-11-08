@@ -565,6 +565,8 @@ static Value lower_expr(Lower *ctx, const CcExpression *expr,
             op = CC_IR_NEG;
         else if (expr->unary.operator == CC_AST_UNARY_OPERATOR_NOT)
             op = CC_IR_NOT;
+        else if (expr->unary.operator == CC_AST_UNARY_OPERATOR_TILDE)
+            op = CC_IR_BIT_NOT;
         else {
             error_at(ctx, expr->span,
                      "IR lowering: unary operator not yet supported");
@@ -590,6 +592,12 @@ static Value lower_expr(Lower *ctx, const CcExpression *expr,
         case CC_AST_BINARY_OPERATOR_STAR: op = CC_IR_MUL; break;
         case CC_AST_BINARY_OPERATOR_SLASH: op = CC_IR_DIV; break;
         case CC_AST_BINARY_OPERATOR_PERCENT: op = CC_IR_MOD; break;
+        case CC_AST_BINARY_OPERATOR_PLUS_PERCENT: op = CC_IR_WRAP_ADD; break;
+        case CC_AST_BINARY_OPERATOR_MINUS_PERCENT: op = CC_IR_WRAP_SUB; break;
+        case CC_AST_BINARY_OPERATOR_STAR_PERCENT: op = CC_IR_WRAP_MUL; break;
+        case CC_AST_BINARY_OPERATOR_AMP: op = CC_IR_BIT_AND; break;
+        case CC_AST_BINARY_OPERATOR_PIPE: op = CC_IR_BIT_OR; break;
+        case CC_AST_BINARY_OPERATOR_CARET: op = CC_IR_BIT_XOR; break;
         case CC_AST_BINARY_OPERATOR_EQ: op = CC_IR_EQ; result_type = CC_IR_BOOL; break;
         case CC_AST_BINARY_OPERATOR_NE: op = CC_IR_NE; result_type = CC_IR_BOOL; break;
         case CC_AST_BINARY_OPERATOR_LT: op = CC_IR_LT; result_type = CC_IR_BOOL; break;
@@ -806,14 +814,51 @@ static bool lower_statement(Lower *ctx, const CcStatement *node)
             error_at(ctx, node->span, "IR lowering: unknown assignment target");
             return false;
         }
-        if (node->assignment.operator != CC_AST_ASSIGNMENT_ASSIGN) {
+        CcIrType type = slot_type(ctx, variable->slot);
+        if (node->assignment.operator == CC_AST_ASSIGNMENT_ASSIGN) {
+            Value value = lower_expr(ctx, node->assignment.value, type);
+            return !ctx->failed &&
+                   store(ctx, variable->slot, value, node->span);
+        }
+        if (type != CC_IR_I32) {
             error_at(ctx, node->span,
-                     "IR lowering: compound assignment not yet supported");
+                     "IR lowering: compound assignment currently requires i32");
             return false;
         }
-        Value value = lower_expr(ctx, node->assignment.value,
-                                 slot_type(ctx, variable->slot));
-        return !ctx->failed && store(ctx, variable->slot, value, node->span);
+        CcIrOpcode opcode;
+        switch (node->assignment.operator) {
+        case CC_AST_ASSIGNMENT_PLUS: opcode = CC_IR_ADD; break;
+        case CC_AST_ASSIGNMENT_MINUS: opcode = CC_IR_SUB; break;
+        case CC_AST_ASSIGNMENT_STAR: opcode = CC_IR_MUL; break;
+        case CC_AST_ASSIGNMENT_SLASH: opcode = CC_IR_DIV; break;
+        case CC_AST_ASSIGNMENT_PERCENT: opcode = CC_IR_MOD; break;
+        case CC_AST_ASSIGNMENT_AMP: opcode = CC_IR_BIT_AND; break;
+        case CC_AST_ASSIGNMENT_PIPE: opcode = CC_IR_BIT_OR; break;
+        case CC_AST_ASSIGNMENT_CARET: opcode = CC_IR_BIT_XOR; break;
+        default:
+            error_at(ctx, node->span,
+                     "IR lowering: compound shift not yet supported");
+            return false;
+        }
+        /* RHS may have branching calls/short-circuit logic: retain the old
+         * target value across block changes, then apply the operation once. */
+        uint32_t old_slot = make_slot(ctx, type, node->span);
+        Value old = load(ctx, variable->slot, node->span);
+        if (ctx->failed || !store(ctx, old_slot, old, node->span))
+            return false;
+        Value rhs = lower_expr(ctx, node->assignment.value, type);
+        if (ctx->failed || rhs.type != type) {
+            error_at(ctx, node->span, "IR lowering: assignment type mismatch");
+            return false;
+        }
+        old = load(ctx, old_slot, node->span);
+        if (ctx->failed) return false;
+        CcIrInstruction *instruction = NULL;
+        Value result = append(ctx, opcode, type, node->span, &instruction);
+        if (instruction == NULL) return false;
+        instruction->lhs = old.reg;
+        instruction->rhs = rhs.reg;
+        return store(ctx, variable->slot, result, node->span);
     }
     case CC_AST_STATEMENT_IF:
         return lower_if(ctx, node->if_statement);
@@ -850,6 +895,90 @@ static bool lower_statement(Lower *ctx, const CcStatement *node)
         ctx->loop = loop.previous;
         if (!ok) return false;
         if (!ctx->current->terminated) jump(ctx, body, node->span);
+        ctx->current = exit;
+        return !ctx->failed;
+    }
+    case CC_AST_STATEMENT_FOR: {
+        const CcFor *for_node = node->for_statement;
+        const CcExpression *range = for_node->range;
+        while (range->kind == CC_AST_EXPRESSION_PARENTHESIZED)
+            range = range->parenthesized_inner;
+        if (range->kind != CC_AST_EXPRESSION_BINARY ||
+            (range->binary.operator != CC_AST_BINARY_OPERATOR_RANGE &&
+             range->binary.operator != CC_AST_BINARY_OPERATOR_RANGE_INCLUSIVE)) {
+            error_at(ctx, for_node->range->span,
+                     "IR lowering: for requires a direct integer range");
+            return false;
+        }
+        bool inclusive =
+            range->binary.operator == CC_AST_BINARY_OPERATOR_RANGE_INCLUSIVE;
+        uint32_t index_slot = make_slot(ctx, CC_IR_I32, for_node->span);
+        uint32_t end_slot = make_slot(ctx, CC_IR_I32, for_node->span);
+        if (ctx->failed) return false;
+        Value start = lower_expr(ctx, range->binary.left, CC_IR_I32);
+        if (ctx->failed || start.type != CC_IR_I32 ||
+            !store(ctx, index_slot, start, range->span)) {
+            error_at(ctx, range->span, "IR lowering: for requires i32 bounds");
+            return false;
+        }
+        Value end = lower_expr(ctx, range->binary.right, CC_IR_I32);
+        if (ctx->failed || end.type != CC_IR_I32 ||
+            !store(ctx, end_slot, end, range->span)) {
+            error_at(ctx, range->span, "IR lowering: for requires i32 bounds");
+            return false;
+        }
+        CcIrBlock *head = new_block(ctx, node->span);
+        CcIrBlock *body = new_block(ctx, node->span);
+        CcIrBlock *increment = new_block(ctx, node->span);
+        CcIrBlock *exit = new_block(ctx, node->span);
+        CcIrBlock *step = inclusive ? new_block(ctx, node->span) : increment;
+        if (ctx->failed) return false;
+        jump(ctx, head, node->span);
+
+        ctx->current = head;
+        Value index = load(ctx, index_slot, node->span);
+        Value limit = load(ctx, end_slot, node->span);
+        CcIrInstruction *test = NULL;
+        Value condition = append(ctx, inclusive ? CC_IR_LE : CC_IR_LT,
+                                 CC_IR_BOOL, node->span, &test);
+        if (ctx->failed) return false;
+        test->lhs = index.reg;
+        test->rhs = limit.reg;
+        branch(ctx, condition, body, exit, node->span);
+
+        LowerVar *saved_variables = ctx->variables;
+        if (!bind_variable(ctx, for_node->name, index_slot)) return false;
+        LowerLoop loop = { exit->id, increment->id, ctx->loop };
+        ctx->loop = &loop;
+        ctx->current = body;
+        bool ok = lower_block(ctx, for_node->body, true);
+        ctx->loop = loop.previous;
+        ctx->variables = saved_variables;
+        if (!ok) return false;
+        if (!ctx->current->terminated) jump(ctx, increment, node->span);
+
+        ctx->current = increment;
+        if (inclusive) {
+            index = load(ctx, index_slot, node->span);
+            limit = load(ctx, end_slot, node->span);
+            CcIrInstruction *at_end = NULL;
+            Value done = append(ctx, CC_IR_EQ, CC_IR_BOOL, node->span,
+                                &at_end);
+            if (ctx->failed) return false;
+            at_end->lhs = index.reg;
+            at_end->rhs = limit.reg;
+            branch(ctx, done, exit, step, node->span);
+            ctx->current = step;
+        }
+        index = load(ctx, index_slot, node->span);
+        Value one = constant(ctx, CC_IR_I32, 1, node->span);
+        CcIrInstruction *add = NULL;
+        Value next = append(ctx, CC_IR_ADD, CC_IR_I32, node->span, &add);
+        if (ctx->failed) return false;
+        add->lhs = index.reg;
+        add->rhs = one.reg;
+        if (!store(ctx, index_slot, next, node->span)) return false;
+        jump(ctx, head, node->span);
         ctx->current = exit;
         return !ctx->failed;
     }

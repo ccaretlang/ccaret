@@ -363,6 +363,109 @@ static void test_invalid_optional_ir(void)
     fixture_destroy(&f);
 }
 
+static void test_for_range_cfg_and_bounds_once(void)
+{
+    Fixture f;
+    fixture_init(&f,
+        "fn low() -> i32 { return 1; }"
+        "fn high() -> i32 { return 3; }"
+        "fn main() -> i32 { var sum: i32 = 0;"
+        " for i in low()..=high() {"
+        "  if i == 2 { continue; }"
+        "  sum += i;"
+        " } return sum; }");
+    lower(&f);
+    CcIrFunction *main_fn = f.module->functions->next->next;
+    assert(main_fn != NULL && main_fn->block_count >= 8);
+    unsigned int calls = 0, branches = 0, additions = 0;
+    for (CcIrBlock *b = main_fn->blocks; b != NULL; b = b->next) {
+        if (b->terminator == CC_IR_BRANCH) branches++;
+        for (CcIrInstruction *i = b->first; i != NULL; i = i->next) {
+            if (i->op == CC_IR_CALL) calls++;
+            if (i->op == CC_IR_ADD) additions++;
+        }
+    }
+    assert(calls == 2); /* Bounds are evaluated once, before the loop. */
+    assert(branches >= 3);
+    assert(additions >= 2); /* Sum update and guarded index step. */
+    assert(find_instruction(main_fn, CC_IR_LE) != NULL);
+    assert(find_instruction(main_fn, CC_IR_EQ) != NULL);
+    CcIrError error;
+    assert(cc_ir_verify(f.module, &error));
+    FILE *out = tmpfile();
+    assert(out != NULL);
+    assert(cc_c_emit(out, f.module, &error));
+    assert(fclose(out) == 0);
+    fixture_destroy(&f);
+}
+
+static void test_bitwise_wrapping_and_compound_ir(void)
+{
+    Fixture f;
+    fixture_init(&f,
+        "fn main() -> i32 {"
+        " let flag: bool = true;"
+        " var x: i32 = 6;"
+        " x &= 3; x |= 4; x ^= 1;"
+        " let a: i32 = ~x;"
+        " let b: i32 = 2147483647 +% 1;"
+        " let c: i32 = b -% 1;"
+        " let d: i32 = c *% 3;"
+        " return a + d; }");
+    lower(&f);
+    CcIrFunction *fn = f.module->functions;
+    CcIrInstruction *and = find_instruction(fn, CC_IR_BIT_AND);
+    CcIrInstruction *not = find_instruction(fn, CC_IR_BIT_NOT);
+    CcIrInstruction *wrap = find_instruction(fn, CC_IR_WRAP_ADD);
+    CcIrInstruction *boolean = find_instruction(fn, CC_IR_CONST_BOOL);
+    assert(and != NULL && not != NULL && wrap != NULL &&
+           boolean != NULL);
+    assert(find_instruction(fn, CC_IR_BIT_OR) != NULL);
+    assert(find_instruction(fn, CC_IR_BIT_XOR) != NULL);
+    assert(find_instruction(fn, CC_IR_WRAP_SUB) != NULL);
+    assert(find_instruction(fn, CC_IR_WRAP_MUL) != NULL);
+
+    uint32_t original = and->lhs;
+    and->lhs = boolean->result;
+    expect_invalid(f.module, "IR verifier: invalid arithmetic");
+    and->lhs = original;
+    CcIrType original_type = and->type;
+    and->type = CC_IR_BOOL;
+    expect_invalid(f.module, "IR verifier: invalid arithmetic");
+    and->type = original_type;
+    original = not->lhs;
+    not->lhs = boolean->result;
+    expect_invalid(f.module, "IR verifier: invalid unary operation");
+    not->lhs = original;
+    original = wrap->rhs;
+    wrap->rhs = boolean->result;
+    expect_invalid(f.module, "IR verifier: invalid arithmetic");
+    wrap->rhs = original;
+    CcIrError error;
+    assert(cc_ir_verify(f.module, &error));
+
+    FILE *out = tmpfile();
+    assert(out != NULL);
+    assert(cc_ir_print(out, f.module));
+    rewind(out);
+    char text[8192];
+    size_t n = fread(text, 1, sizeof(text) - 1, out);
+    text[n] = '\0';
+    assert(strstr(text, "bit.and ") != NULL);
+    assert(strstr(text, "bit.or ") != NULL);
+    assert(strstr(text, "bit.xor ") != NULL);
+    assert(strstr(text, "bit.not ") != NULL);
+    assert(strstr(text, "add.wrap ") != NULL);
+    assert(strstr(text, "sub.wrap ") != NULL);
+    assert(strstr(text, "mul.wrap ") != NULL);
+    assert(fclose(out) == 0);
+    out = tmpfile();
+    assert(out != NULL);
+    assert(cc_c_emit(out, f.module, &error));
+    assert(fclose(out) == 0);
+    fixture_destroy(&f);
+}
+
 static void test_explicit_unsupported(void)
 {
     Fixture f;
@@ -403,6 +506,8 @@ int main(void)
     test_tuple_destructuring_and_type_interning();
     test_invalid_tuple_ir();
     test_invalid_optional_ir();
+    test_for_range_cfg_and_bounds_once();
+    test_bitwise_wrapping_and_compound_ir();
     test_explicit_unsupported();
     test_bad_inputs();
     puts("IR: all tests passed");

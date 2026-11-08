@@ -1,7 +1,7 @@
 # First semantic analysis pass
 
-The C^ frontend now has a separate semantic stage, after parsing and before
-the (not yet implemented) typed IR. The command to run it is:
+The C^ frontend has a separate semantic stage between parsing and typed IR
+lowering. The command to run it is:
 
 ```sh
 make check
@@ -52,7 +52,8 @@ are arena-allocated; it does not yet annotate the AST with persistent
   members or indexed storage.
 - Float type signatures and operations on float *variables* are recognized;
   floating-point literal expressions still await parser support.
-- Integer literals are checked for representable values, but full
+- Integer literals are checked for representable values (including the
+  unannotated `i32` minimum, `-2147483648`), but full
   compile-time arithmetic evaluation, integer overflow proofs at runtime,
   and target ABI layout analysis are not implemented.
 - `none` requires an optional type context; result type inference is

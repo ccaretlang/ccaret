@@ -1,0 +1,8 @@
+fn main() -> i32 {
+    var seen: i32 = 0;
+    for i in 2147483646..=2147483647 {
+        seen += 1;
+        continue;
+    }
+    return seen + 40;
+}
