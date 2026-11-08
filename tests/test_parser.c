@@ -270,6 +270,105 @@ static void test_optional_type_eof(void)
     fixture_destroy(&fixture);
 }
 
+static void test_pointer_types(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture,
+                 "fn f(p: *i32, q: ?*u8) -> *?i32 { let x: **u8 = q; return p; }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcParameter *first = function->parameters;
+
+    assert(first != NULL);
+    assert(first->span.start == 5 && first->span.end == 12);
+    assert(first->type->kind == CC_AST_TYPE_POINTER);
+    assert(first->type->span.file_id == fixture.id);
+    assert(first->type->span.start == 8 && first->type->span.end == 12);
+    assert(first->type->pointer_inner != NULL);
+    assert(first->type->pointer_inner->kind == CC_AST_TYPE_NAMED);
+    assert(first->type->pointer_inner->span.start == 9);
+    assert(first->type->pointer_inner->span.end == 12);
+
+    CcParameter *second = first->next;
+
+    assert(second != NULL);
+    assert(second->span.start == 14 && second->span.end == 21);
+    assert(second->type->kind == CC_AST_TYPE_OPTIONAL);
+    assert(second->type->span.start == 17 && second->type->span.end == 21);
+    assert(second->type->optional_inner->kind == CC_AST_TYPE_POINTER);
+    assert(second->type->optional_inner->span.start == 18);
+    assert(second->type->optional_inner->span.end == 21);
+    assert(second->type->optional_inner->pointer_inner->kind ==
+           CC_AST_TYPE_NAMED);
+    assert(second->type->optional_inner->pointer_inner->span.start == 19);
+    assert(second->type->optional_inner->pointer_inner->span.end == 21);
+    assert(second->next == NULL);
+
+    CcType *return_type = function->return_type;
+
+    assert(return_type != NULL);
+    assert(return_type->kind == CC_AST_TYPE_POINTER);
+    assert(return_type->span.start == 26 && return_type->span.end == 31);
+    assert(return_type->pointer_inner->kind == CC_AST_TYPE_OPTIONAL);
+    assert(return_type->pointer_inner->span.start == 27);
+    assert(return_type->pointer_inner->span.end == 31);
+    assert(return_type->pointer_inner->optional_inner->kind ==
+           CC_AST_TYPE_NAMED);
+    assert(return_type->pointer_inner->optional_inner->span.start == 28);
+    assert(return_type->pointer_inner->optional_inner->span.end == 31);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_LET);
+    assert(statement->let.type != NULL);
+    assert(statement->let.type->kind == CC_AST_TYPE_POINTER);
+    assert(statement->let.type->span.start == 41);
+    assert(statement->let.type->span.end == 45);
+    assert(statement->let.type->pointer_inner->kind == CC_AST_TYPE_POINTER);
+    assert(statement->let.type->pointer_inner->span.start == 42);
+    assert(statement->let.type->pointer_inner->span.end == 45);
+    assert(statement->let.type->pointer_inner->pointer_inner->kind ==
+           CC_AST_TYPE_NAMED);
+    assert(statement->let.type->pointer_inner->pointer_inner->span.start == 43);
+    assert(statement->let.type->pointer_inner->pointer_inner->span.end == 45);
+    assert(statement->let.initializer->kind == CC_AST_EXPRESSION_IDENTIFIER);
+    assert(statement->next != NULL);
+    assert(statement->next->kind == CC_AST_STATEMENT_RETURN);
+    assert(statement->next->next == NULL);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_pointer_type_eof(void)
+{
+    static const char *const sources[] = {
+        "fn f() -> *",
+        "fn f() -> ?*"
+    };
+
+    for (size_t i = 0; i < sizeof(sources) / sizeof(sources[0]); i++) {
+        ParserFixture fixture;
+
+        fixture_init(&fixture, sources[i]);
+
+        assert(cc_parser_parse_program(&fixture.parser) == NULL);
+        assert(fixture.parser.failed);
+        assert(fixture.parser.error != NULL);
+        assert(strcmp(fixture.parser.error, "expected a type") == 0);
+        assert(fixture.parser.error_span.file_id == fixture.id);
+        assert(fixture.parser.error_span.start == strlen(sources[i]));
+        assert(fixture.parser.error_span.end == strlen(sources[i]));
+
+        fixture_destroy(&fixture);
+    }
+}
+
 static void test_multiple_functions(void)
 {
     ParserFixture fixture;
@@ -2051,6 +2150,10 @@ static void test_parse_errors(void)
         "fn f(x: ?" "?) {}",
         "fn f() -> ? {}",
         "fn f() { let x: ? = none; }",
+        "fn f(x: *) {}",
+        "fn f(x: ?*) {}",
+        "fn f() -> * {}",
+        "fn f() { let p: ** = none; }",
         "let x = 1;",
         "fn main() { return 42 }",
         "fn main() { return; ",
@@ -2156,6 +2259,8 @@ int main(void)
     test_optional_types();
     test_nested_optional_types();
     test_optional_type_eof();
+    test_pointer_types();
+    test_pointer_type_eof();
     test_multiple_functions();
     test_public_function();
     test_public_function_eof();

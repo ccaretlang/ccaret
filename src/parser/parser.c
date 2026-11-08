@@ -635,8 +635,9 @@ static CcExpression *parse_expression(CcParser *parser)
 
 static CcType *parse_type(CcParser *parser)
 {
-    if (parser->current.kind == CC_TOKEN_QUESTION) {
-        CcToken question = parser->current;
+    if (parser->current.kind == CC_TOKEN_QUESTION ||
+        parser->current.kind == CC_TOKEN_STAR) {
+        CcToken prefix = parser->current;
 
         advance(parser);
 
@@ -648,11 +649,16 @@ static CcType *parse_type(CcParser *parser)
 
         if (type == NULL) return NULL;
 
-        type->kind = CC_AST_TYPE_OPTIONAL;
-        type->span.file_id = question.span.file_id;
-        type->span.start = question.span.start;
+        type->kind = prefix.kind == CC_TOKEN_QUESTION
+            ? CC_AST_TYPE_OPTIONAL
+            : CC_AST_TYPE_POINTER;
+        type->span.file_id = prefix.span.file_id;
+        type->span.start = prefix.span.start;
         type->span.end = inner->span.end;
-        type->optional_inner = inner;
+        if (prefix.kind == CC_TOKEN_QUESTION)
+            type->optional_inner = inner;
+        else
+            type->pointer_inner = inner;
 
         return type;
     }
