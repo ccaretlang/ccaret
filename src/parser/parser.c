@@ -644,6 +644,8 @@ static CcType *parse_type(CcParser *parser)
                     "expected `]` in slice type", NULL))
             return NULL;
 
+        bool element_const = accept(parser, CC_TOKEN_KW_CONST, NULL);
+
         CcType *inner = parse_type(parser);
 
         if (parser->failed || inner == NULL) return NULL;
@@ -657,6 +659,7 @@ static CcType *parse_type(CcParser *parser)
         type->span.start = lbracket.span.start;
         type->span.end = inner->span.end;
         type->pointer_pointee_const = false;
+        type->slice_element_const = element_const;
         type->slice_inner = inner;
 
         return type;
@@ -686,6 +689,7 @@ static CcType *parse_type(CcParser *parser)
         type->span.start = prefix.span.start;
         type->span.end = inner->span.end;
         type->pointer_pointee_const = pointee_const;
+        type->slice_element_const = false;
         if (prefix.kind == CC_TOKEN_QUESTION)
             type->optional_inner = inner;
         else
@@ -706,6 +710,7 @@ static CcType *parse_type(CcParser *parser)
     type->kind = CC_AST_TYPE_NAMED;
     type->span = name.span;
     type->pointer_pointee_const = false;
+    type->slice_element_const = false;
     type->optional_inner = NULL;
 
     return type;

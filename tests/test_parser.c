@@ -488,6 +488,7 @@ static void test_slice_types(void)
     assert(first != NULL);
     assert(first->span.start == 5 && first->span.end == 15);
     assert(first->type->kind == CC_AST_TYPE_SLICE);
+    assert(!first->type->slice_element_const);
     assert(first->type->span.file_id == fixture.id);
     assert(first->type->span.start == 11 && first->type->span.end == 15);
     assert(first->type->slice_inner->kind == CC_AST_TYPE_NAMED);
@@ -501,6 +502,7 @@ static void test_slice_types(void)
     assert(second->type->kind == CC_AST_TYPE_OPTIONAL);
     assert(second->type->span.start == 22 && second->type->span.end == 28);
     assert(second->type->optional_inner->kind == CC_AST_TYPE_SLICE);
+    assert(!second->type->optional_inner->slice_element_const);
     assert(second->type->optional_inner->span.start == 23);
     assert(second->type->optional_inner->span.end == 28);
     assert(second->type->optional_inner->slice_inner->kind ==
@@ -516,6 +518,7 @@ static void test_slice_types(void)
     assert(!return_type->pointer_pointee_const);
     assert(return_type->span.start == 33 && return_type->span.end == 38);
     assert(return_type->pointer_inner->kind == CC_AST_TYPE_SLICE);
+    assert(!return_type->pointer_inner->slice_element_const);
     assert(return_type->pointer_inner->span.start == 34);
     assert(return_type->pointer_inner->span.end == 38);
     assert(return_type->pointer_inner->slice_inner->kind == CC_AST_TYPE_NAMED);
@@ -527,9 +530,11 @@ static void test_slice_types(void)
     assert(statement != NULL);
     assert(statement->kind == CC_AST_STATEMENT_LET);
     assert(statement->let.type->kind == CC_AST_TYPE_SLICE);
+    assert(!statement->let.type->slice_element_const);
     assert(statement->let.type->span.start == 53);
     assert(statement->let.type->span.end == 59);
     assert(statement->let.type->slice_inner->kind == CC_AST_TYPE_SLICE);
+    assert(!statement->let.type->slice_inner->slice_element_const);
     assert(statement->let.type->slice_inner->span.start == 55);
     assert(statement->let.type->slice_inner->span.end == 59);
     assert(statement->let.type->slice_inner->slice_inner->kind ==
@@ -566,6 +571,136 @@ static void test_slice_type_eof(void)
 
         fixture_destroy(&fixture);
     }
+}
+
+static void test_const_slice_types(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture,
+                 "fn f(data: []const u8, opt: ?[]const i32) -> *[]const u8 { let nested: [][]const u8 = data; return data; }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcParameter *first = function->parameters;
+
+    assert(first != NULL);
+    assert(first->span.start == 5 && first->span.end == 21);
+    assert(first->type->kind == CC_AST_TYPE_SLICE);
+    assert(first->type->slice_element_const);
+    assert(first->type->span.file_id == fixture.id);
+    assert(first->type->span.start == 11 && first->type->span.end == 21);
+    assert(first->type->slice_inner->kind == CC_AST_TYPE_NAMED);
+    assert(first->type->slice_inner->span.start == 19);
+    assert(first->type->slice_inner->span.end == 21);
+
+    CcParameter *second = first->next;
+
+    assert(second != NULL);
+    assert(second->span.start == 23 && second->span.end == 40);
+    assert(second->type->kind == CC_AST_TYPE_OPTIONAL);
+    assert(second->type->span.start == 28 && second->type->span.end == 40);
+    assert(second->type->optional_inner->kind == CC_AST_TYPE_SLICE);
+    assert(second->type->optional_inner->slice_element_const);
+    assert(second->type->optional_inner->span.start == 29);
+    assert(second->type->optional_inner->span.end == 40);
+    assert(second->type->optional_inner->slice_inner->kind ==
+           CC_AST_TYPE_NAMED);
+    assert(second->type->optional_inner->slice_inner->span.start == 37);
+    assert(second->type->optional_inner->slice_inner->span.end == 40);
+    assert(second->next == NULL);
+
+    CcType *return_type = function->return_type;
+
+    assert(return_type != NULL);
+    assert(return_type->kind == CC_AST_TYPE_POINTER);
+    assert(!return_type->pointer_pointee_const);
+    assert(return_type->span.start == 45 && return_type->span.end == 56);
+    assert(return_type->pointer_inner->kind == CC_AST_TYPE_SLICE);
+    assert(return_type->pointer_inner->slice_element_const);
+    assert(return_type->pointer_inner->span.start == 46);
+    assert(return_type->pointer_inner->span.end == 56);
+    assert(return_type->pointer_inner->slice_inner->kind == CC_AST_TYPE_NAMED);
+    assert(return_type->pointer_inner->slice_inner->span.start == 54);
+    assert(return_type->pointer_inner->slice_inner->span.end == 56);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_LET);
+    assert(statement->let.type->kind == CC_AST_TYPE_SLICE);
+    assert(!statement->let.type->slice_element_const);
+    assert(statement->let.type->span.start == 71);
+    assert(statement->let.type->span.end == 83);
+    assert(statement->let.type->slice_inner->kind == CC_AST_TYPE_SLICE);
+    assert(statement->let.type->slice_inner->slice_element_const);
+    assert(statement->let.type->slice_inner->span.start == 73);
+    assert(statement->let.type->slice_inner->span.end == 83);
+    assert(statement->let.type->slice_inner->slice_inner->kind ==
+           CC_AST_TYPE_NAMED);
+    assert(statement->let.type->slice_inner->slice_inner->span.start == 81);
+    assert(statement->let.type->slice_inner->slice_inner->span.end == 83);
+    assert(statement->let.initializer->kind == CC_AST_EXPRESSION_IDENTIFIER);
+    assert(statement->next != NULL);
+    assert(statement->next->kind == CC_AST_STATEMENT_RETURN);
+    assert(statement->next->next == NULL);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_const_slice_pointer_qualifiers(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f(a: []const *u8, b: []*const u8) {}");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcType *first = function->parameters->type;
+
+    assert(first->kind == CC_AST_TYPE_SLICE);
+    assert(first->slice_element_const);
+    assert(first->span.start == 8 && first->span.end == 19);
+    assert(first->slice_inner->kind == CC_AST_TYPE_POINTER);
+    assert(!first->slice_inner->pointer_pointee_const);
+    assert(first->slice_inner->span.start == 16);
+    assert(first->slice_inner->span.end == 19);
+
+    CcType *second = function->parameters->next->type;
+
+    assert(second->kind == CC_AST_TYPE_SLICE);
+    assert(!second->slice_element_const);
+    assert(second->span.start == 24 && second->span.end == 35);
+    assert(second->slice_inner->kind == CC_AST_TYPE_POINTER);
+    assert(second->slice_inner->pointer_pointee_const);
+    assert(second->slice_inner->span.start == 26);
+    assert(second->slice_inner->span.end == 35);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_const_slice_type_eof(void)
+{
+    static const char *source = "fn f() -> ?[]const";
+    ParserFixture fixture;
+
+    fixture_init(&fixture, source);
+
+    assert(cc_parser_parse_program(&fixture.parser) == NULL);
+    assert(fixture.parser.failed);
+    assert(fixture.parser.error != NULL);
+    assert(strcmp(fixture.parser.error, "expected a type") == 0);
+    assert(fixture.parser.error_span.file_id == fixture.id);
+    assert(fixture.parser.error_span.start == strlen(source));
+    assert(fixture.parser.error_span.end == strlen(source));
+
+    fixture_destroy(&fixture);
 }
 
 static void test_multiple_functions(void)
@@ -2361,9 +2496,13 @@ static void test_parse_errors(void)
         "fn f() { let x: *const = p; }",
         "fn f(x: [u8) {}",
         "fn f(x: [1]u8) {}",
-        "fn f(x: []const u8) {}",
         "fn f() -> [ {}",
         "fn f() { let x: [] = data; }",
+        "fn f(x: []const) {}",
+        "fn f(x: []const const u8) {}",
+        "fn f(x: []const]u8) {}",
+        "fn f() -> []const {}",
+        "fn f() { let x: []const = data; }",
         "let x = 1;",
         "fn main() { return 42 }",
         "fn main() { return; ",
@@ -2475,6 +2614,9 @@ int main(void)
     test_const_pointer_type_eof();
     test_slice_types();
     test_slice_type_eof();
+    test_const_slice_types();
+    test_const_slice_pointer_qualifiers();
+    test_const_slice_type_eof();
     test_multiple_functions();
     test_public_function();
     test_public_function_eof();
