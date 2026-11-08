@@ -1127,6 +1127,79 @@ static void test_loop_statement_with_break(void)
     fixture_destroy(&fixture);
 }
 
+static void test_range_expression(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { 0..9; }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_EXPRESSION);
+    assert(statement->span.start == 9 && statement->span.end == 14);
+
+    CcExpression *expression = statement->expression;
+
+    assert(expression != NULL);
+    assert(expression->kind == CC_AST_EXPRESSION_BINARY);
+    assert(expression->span.start == 9 && expression->span.end == 13);
+    assert(expression->binary.operator == CC_AST_BINARY_OPERATOR_RANGE);
+    assert(expression->binary.left != NULL);
+    assert(expression->binary.left->kind ==
+           CC_AST_EXPRESSION_INTEGER_LITERAL);
+    assert(expression->binary.left->span.start == 9);
+    assert(expression->binary.left->span.end == 10);
+    assert(expression->binary.right != NULL);
+    assert(expression->binary.right->kind ==
+           CC_AST_EXPRESSION_INTEGER_LITERAL);
+    assert(expression->binary.right->span.start == 12);
+    assert(expression->binary.right->span.end == 13);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_inclusive_range_binds_loosely(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { 1 + 2..=n; }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_EXPRESSION);
+    assert(statement->span.start == 9 && statement->span.end == 19);
+
+    CcExpression *expression = statement->expression;
+
+    assert(expression != NULL);
+    assert(expression->kind == CC_AST_EXPRESSION_BINARY);
+    assert(expression->span.start == 9 && expression->span.end == 18);
+    assert(expression->binary.operator ==
+           CC_AST_BINARY_OPERATOR_RANGE_INCLUSIVE);
+    assert(expression->binary.left != NULL);
+    assert(expression->binary.left->kind == CC_AST_EXPRESSION_BINARY);
+    assert(expression->binary.left->span.start == 9);
+    assert(expression->binary.left->span.end == 14);
+    assert(expression->binary.right != NULL);
+    assert(expression->binary.right->kind == CC_AST_EXPRESSION_IDENTIFIER);
+    assert(expression->binary.right->span.start == 17);
+    assert(expression->binary.right->span.end == 18);
+
+    fixture_destroy(&fixture);
+}
+
 static void test_parse_errors(void)
 {
     static const char *const invalid[] = {
@@ -1162,7 +1235,6 @@ static void test_parse_errors(void)
         "fn f() { p.; }",
         "fn f() { a[]; }",
         "fn f() { a[1; }",
-        "fn f() { a[1..2]; }",
         "fn f() { p.-1; }",
         "fn f() { if }",
         "fn f() { if x }",
@@ -1173,7 +1245,9 @@ static void test_parse_errors(void)
         "fn f() { break 1; }",
         "fn f() { continue }",
         "fn f() { loop }",
-        "fn f() { loop; }"
+        "fn f() { loop; }",
+        "fn f() { 0..1..2; }",
+        "fn f() { 1..; }"
     };
 
     ParserFixture fixture;
@@ -1237,6 +1311,8 @@ int main(void)
     test_continue_statement();
     test_loop_statement();
     test_loop_statement_with_break();
+    test_range_expression();
+    test_inclusive_range_binds_loosely();
     test_parse_errors();
     test_empty_source_without_functions();
 

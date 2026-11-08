@@ -5,6 +5,7 @@
 
 enum {
     PREC_NONE = 0,
+    PREC_RANGE,
     PREC_OR_OR,
     PREC_AND_AND,
     PREC_PIPE,
@@ -51,6 +52,10 @@ static const CcAssignmentOperatorInfo assignment_operators[] = {
 };
 
 static const CcBinaryOperatorInfo binary_operators[] = {
+    { CC_TOKEN_DOT_DOT, CC_AST_BINARY_OPERATOR_RANGE, PREC_RANGE },
+    { CC_TOKEN_DOT_DOT_EQUAL,
+      CC_AST_BINARY_OPERATOR_RANGE_INCLUSIVE,
+      PREC_RANGE },
     { CC_TOKEN_OR_OR, CC_AST_BINARY_OPERATOR_OR_OR, PREC_OR_OR },
     { CC_TOKEN_AND_AND, CC_AST_BINARY_OPERATOR_AND_AND, PREC_AND_AND },
     { CC_TOKEN_PIPE, CC_AST_BINARY_OPERATOR_PIPE, PREC_PIPE },
@@ -518,6 +523,15 @@ static CcExpression *parse_binary(CcParser *parser, int min_precedence)
         outer->binary.left = left;
         outer->binary.right = right;
         outer->binary.operator = info->operator;
+
+        if (info->operator == CC_AST_BINARY_OPERATOR_RANGE ||
+            info->operator == CC_AST_BINARY_OPERATOR_RANGE_INCLUSIVE) {
+            if (parser->current.kind == CC_TOKEN_DOT_DOT ||
+                parser->current.kind == CC_TOKEN_DOT_DOT_EQUAL) {
+                report_error(parser, "ranges are not chainable");
+                return NULL;
+            }
+        }
 
         left = outer;
     }
