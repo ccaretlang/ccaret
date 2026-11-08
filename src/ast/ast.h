@@ -19,7 +19,8 @@ typedef struct CcFunctionDeclaration CcFunctionDeclaration;
 typedef enum {
     CC_AST_TYPE_NAMED,
     CC_AST_TYPE_OPTIONAL,
-    CC_AST_TYPE_POINTER
+    CC_AST_TYPE_POINTER,
+    CC_AST_TYPE_SLICE
 } CcTypeKind;
 
 typedef enum {
@@ -108,6 +109,7 @@ struct CcType {
     union {
         CcType *optional_inner;
         CcType *pointer_inner;
+        CcType *slice_inner;
     };
 };
 

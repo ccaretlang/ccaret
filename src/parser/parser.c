@@ -635,6 +635,33 @@ static CcExpression *parse_expression(CcParser *parser)
 
 static CcType *parse_type(CcParser *parser)
 {
+    if (parser->current.kind == CC_TOKEN_LBRACKET) {
+        CcToken lbracket = parser->current;
+
+        advance(parser);
+
+        if (!expect(parser, CC_TOKEN_RBRACKET,
+                    "expected `]` in slice type", NULL))
+            return NULL;
+
+        CcType *inner = parse_type(parser);
+
+        if (parser->failed || inner == NULL) return NULL;
+
+        CcType *type = allocate(parser, sizeof(*type));
+
+        if (type == NULL) return NULL;
+
+        type->kind = CC_AST_TYPE_SLICE;
+        type->span.file_id = lbracket.span.file_id;
+        type->span.start = lbracket.span.start;
+        type->span.end = inner->span.end;
+        type->pointer_pointee_const = false;
+        type->slice_inner = inner;
+
+        return type;
+    }
+
     if (parser->current.kind == CC_TOKEN_QUESTION ||
         parser->current.kind == CC_TOKEN_STAR) {
         CcToken prefix = parser->current;
