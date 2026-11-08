@@ -703,6 +703,167 @@ static void test_const_slice_type_eof(void)
     fixture_destroy(&fixture);
 }
 
+static void test_array_types(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture,
+                 "fn f(a: [4]u8, b: ?[2][]const u8) -> *[n + 1]i32 { let x: [2][3]u8 = a; return a; }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcParameter *first = function->parameters;
+
+    assert(first != NULL);
+    assert(first->span.start == 5 && first->span.end == 13);
+    assert(first->type->kind == CC_AST_TYPE_ARRAY);
+    assert(first->type->span.file_id == fixture.id);
+    assert(first->type->span.start == 8 && first->type->span.end == 13);
+    assert(first->type->array.length->kind == CC_AST_EXPRESSION_INTEGER_LITERAL);
+    assert(first->type->array.length->integer_literal.value == 4);
+    assert(first->type->array.length->span.start == 9);
+    assert(first->type->array.length->span.end == 10);
+    assert(first->type->array.element->kind == CC_AST_TYPE_NAMED);
+    assert(first->type->array.element->span.start == 11);
+    assert(first->type->array.element->span.end == 13);
+
+    CcParameter *second = first->next;
+
+    assert(second != NULL);
+    assert(second->span.start == 15 && second->span.end == 32);
+    assert(second->type->kind == CC_AST_TYPE_OPTIONAL);
+    assert(second->type->span.start == 18 && second->type->span.end == 32);
+
+    CcType *array = second->type->optional_inner;
+
+    assert(array->kind == CC_AST_TYPE_ARRAY);
+    assert(array->span.start == 19 && array->span.end == 32);
+    assert(array->array.length->kind == CC_AST_EXPRESSION_INTEGER_LITERAL);
+    assert(array->array.length->integer_literal.value == 2);
+    assert(array->array.element->kind == CC_AST_TYPE_SLICE);
+    assert(array->array.element->slice_element_const);
+    assert(array->array.element->span.start == 22);
+    assert(array->array.element->span.end == 32);
+    assert(array->array.element->slice_inner->kind == CC_AST_TYPE_NAMED);
+    assert(second->next == NULL);
+
+    CcType *return_type = function->return_type;
+
+    assert(return_type != NULL);
+    assert(return_type->kind == CC_AST_TYPE_POINTER);
+    assert(return_type->span.start == 37 && return_type->span.end == 48);
+    array = return_type->pointer_inner;
+    assert(array->kind == CC_AST_TYPE_ARRAY);
+    assert(array->span.start == 38 && array->span.end == 48);
+    assert(array->array.length->kind == CC_AST_EXPRESSION_BINARY);
+    assert(array->array.length->binary.operator == CC_AST_BINARY_OPERATOR_PLUS);
+    assert(array->array.length->span.start == 39);
+    assert(array->array.length->span.end == 44);
+    assert(array->array.length->binary.left->kind == CC_AST_EXPRESSION_IDENTIFIER);
+    assert(array->array.length->binary.right->kind ==
+           CC_AST_EXPRESSION_INTEGER_LITERAL);
+    assert(array->array.length->binary.right->integer_literal.value == 1);
+    assert(array->array.element->kind == CC_AST_TYPE_NAMED);
+    assert(array->array.element->span.start == 45);
+    assert(array->array.element->span.end == 48);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_LET);
+    array = statement->let.type;
+    assert(array != NULL);
+    assert(array->kind == CC_AST_TYPE_ARRAY);
+    assert(array->span.start == 58 && array->span.end == 66);
+    assert(array->array.length->integer_literal.value == 2);
+    assert(array->array.element->kind == CC_AST_TYPE_ARRAY);
+    assert(array->array.element->span.start == 61);
+    assert(array->array.element->span.end == 66);
+    assert(array->array.element->array.length->integer_literal.value == 3);
+    assert(array->array.element->array.element->kind == CC_AST_TYPE_NAMED);
+    assert(statement->let.initializer->kind == CC_AST_EXPRESSION_IDENTIFIER);
+    assert(statement->next != NULL);
+    assert(statement->next->kind == CC_AST_STATEMENT_RETURN);
+    assert(statement->next->next == NULL);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_array_length_expressions(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture,
+                 "fn f(a: [count]u8, b: [0]i32, c: [18446744073709551616]u8) {}");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcParameter *first = function->parameters;
+
+    assert(first != NULL);
+    assert(first->type->kind == CC_AST_TYPE_ARRAY);
+    assert(first->type->span.start == 8 && first->type->span.end == 17);
+    assert(first->type->array.length->kind == CC_AST_EXPRESSION_IDENTIFIER);
+    assert(first->type->array.length->span.start == 9);
+    assert(first->type->array.length->span.end == 14);
+
+    CcParameter *second = first->next;
+
+    assert(second != NULL);
+    assert(second->type->kind == CC_AST_TYPE_ARRAY);
+    assert(second->type->span.start == 22 && second->type->span.end == 28);
+    assert(second->type->array.length->kind == CC_AST_EXPRESSION_INTEGER_LITERAL);
+    assert(second->type->array.length->integer_literal.value == 0);
+    assert(!second->type->array.length->integer_literal.overflow);
+
+    CcParameter *third = second->next;
+
+    assert(third != NULL);
+    assert(third->type->kind == CC_AST_TYPE_ARRAY);
+    assert(third->type->span.start == 33 && third->type->span.end == 57);
+    assert(third->type->array.length->kind == CC_AST_EXPRESSION_INTEGER_LITERAL);
+    assert(third->type->array.length->span.start == 34);
+    assert(third->type->array.length->span.end == 54);
+    assert(third->type->array.length->integer_literal.overflow);
+    assert(third->next == NULL);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_array_type_eof(void)
+{
+    static const char *const sources[] = {
+        "fn f() -> [2",
+        "fn f() -> [2]"
+    };
+    static const char *const errors[] = {
+        "expected `]` after array length",
+        "expected a type"
+    };
+
+    for (size_t i = 0; i < sizeof(sources) / sizeof(sources[0]); i++) {
+        ParserFixture fixture;
+
+        fixture_init(&fixture, sources[i]);
+
+        assert(cc_parser_parse_program(&fixture.parser) == NULL);
+        assert(fixture.parser.failed);
+        assert(fixture.parser.error != NULL);
+        assert(strcmp(fixture.parser.error, errors[i]) == 0);
+        assert(fixture.parser.error_span.file_id == fixture.id);
+        assert(fixture.parser.error_span.start == strlen(sources[i]));
+        assert(fixture.parser.error_span.end == strlen(sources[i]));
+
+        fixture_destroy(&fixture);
+    }
+}
+
 static void test_multiple_functions(void)
 {
     ParserFixture fixture;
@@ -2495,7 +2656,10 @@ static void test_parse_errors(void)
         "fn f() -> *const {}",
         "fn f() { let x: *const = p; }",
         "fn f(x: [u8) {}",
-        "fn f(x: [1]u8) {}",
+        "fn f(x: [1, 2]u8) {}",
+        "fn f(x: [1 +]u8) {}",
+        "fn f(x: [1]const u8) {}",
+        "fn f() -> [1] {}",
         "fn f() -> [ {}",
         "fn f() { let x: [] = data; }",
         "fn f(x: []const) {}",
@@ -2617,6 +2781,9 @@ int main(void)
     test_const_slice_types();
     test_const_slice_pointer_qualifiers();
     test_const_slice_type_eof();
+    test_array_types();
+    test_array_length_expressions();
+    test_array_type_eof();
     test_multiple_functions();
     test_public_function();
     test_public_function_eof();

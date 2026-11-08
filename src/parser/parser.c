@@ -640,11 +640,21 @@ static CcType *parse_type(CcParser *parser)
 
         advance(parser);
 
+        CcExpression *length = NULL;
+
+        if (parser->current.kind != CC_TOKEN_RBRACKET) {
+            length = parse_expression(parser);
+
+            if (parser->failed || length == NULL) return NULL;
+        }
+
         if (!expect(parser, CC_TOKEN_RBRACKET,
-                    "expected `]` in slice type", NULL))
+                    length == NULL ? "expected `]` in slice type"
+                                   : "expected `]` after array length", NULL))
             return NULL;
 
-        bool element_const = accept(parser, CC_TOKEN_KW_CONST, NULL);
+        bool element_const = length == NULL &&
+            accept(parser, CC_TOKEN_KW_CONST, NULL);
 
         CcType *inner = parse_type(parser);
 
@@ -654,13 +664,18 @@ static CcType *parse_type(CcParser *parser)
 
         if (type == NULL) return NULL;
 
-        type->kind = CC_AST_TYPE_SLICE;
+        type->kind = length == NULL ? CC_AST_TYPE_SLICE : CC_AST_TYPE_ARRAY;
         type->span.file_id = lbracket.span.file_id;
         type->span.start = lbracket.span.start;
         type->span.end = inner->span.end;
         type->pointer_pointee_const = false;
         type->slice_element_const = element_const;
-        type->slice_inner = inner;
+        if (length == NULL)
+            type->slice_inner = inner;
+        else {
+            type->array.length = length;
+            type->array.element = inner;
+        }
 
         return type;
     }
