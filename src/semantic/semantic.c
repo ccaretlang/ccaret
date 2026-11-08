@@ -1238,4 +1238,3 @@ bool cc_semantic_check(const CcSourceFile *file,
 
     return true;
 }
-
