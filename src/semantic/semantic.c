@@ -273,7 +273,7 @@ static SemType *finalize_type(SemContext *ctx, SemType *type,
 
             if (ctx->failed) return NULL;
         }
-    } else if (type->kind == SEM_OPTIONAL) {
+    } else if (type->kind == SEM_OPTIONAL || type->kind == SEM_ARRAY) {
         type->inner = finalize_type(ctx, type->inner, span);
 
         if (ctx->failed) return NULL;
@@ -725,6 +725,38 @@ static SemType *check_expr(SemContext *ctx, const CcExpression *expr,
 
         return coerce(ctx, tuple, expected, expr->span);
     }
+    case CC_AST_EXPRESSION_ARRAY: {
+        if (expected != NULL && expected->kind != SEM_ARRAY) {
+            fail(ctx, expr->span, "type mismatch: expected an array");
+            return NULL;
+        }
+        uint64_t count = 0;
+        for (CcTupleExpressionElement *item = expr->array_elements;
+             item != NULL; item = item->next) count++;
+        if (expected != NULL && count != expected->length) {
+            fail(ctx, expr->span, "array literal length mismatch");
+            return NULL;
+        }
+        if (expected == NULL && count == 0) {
+            fail(ctx, expr->span, "empty array requires a type context");
+            return NULL;
+        }
+        SemType *element = expected == NULL ? NULL : expected->inner;
+        for (CcTupleExpressionElement *item = expr->array_elements;
+             item != NULL; item = item->next) {
+            SemType *actual = check_expr(ctx, item->value, element);
+            if (actual == NULL) return NULL;
+            if (element == NULL) {
+                element = finalize_type(ctx, actual, item->value->span);
+                if (element == NULL) return NULL;
+            }
+        }
+        SemType *array = new_type(ctx, SEM_ARRAY, expr->span);
+        if (array == NULL) return NULL;
+        array->length = count;
+        array->inner = element;
+        return coerce(ctx, array, expected, expr->span);
+    }
     case CC_AST_EXPRESSION_NONE_LITERAL:
         if (expected == NULL || expected->kind != SEM_OPTIONAL) {
             fail(ctx, expr->span, "none requires an optional type context");
@@ -988,6 +1020,43 @@ static bool check_statement(SemContext *ctx, const CcStatement *statement)
     case CC_AST_STATEMENT_ASSIGNMENT: {
         const CcExpression *target = statement->assignment.target;
 
+        if (target->kind == CC_AST_EXPRESSION_INDEX &&
+            target->index.operand->kind == CC_AST_EXPRESSION_IDENTIFIER) {
+            SemVariable *base =
+                find_variable(ctx, target->index.operand->identifier_name);
+            if (base == NULL) {
+                fail(ctx, target->index.operand->span, "undefined name");
+                return false;
+            }
+            if (!base->mutable) {
+                fail(ctx, target->span, "cannot assign to immutable binding");
+                return false;
+            }
+            if (base->type->kind != SEM_ARRAY) {
+                fail(ctx, target->span, "indexed assignment requires an array");
+                return false;
+            }
+            SemType *index = check_expr(ctx, target->index.index, NULL);
+            if (index == NULL) return false;
+            if (index->kind != SEM_INTEGER &&
+                index->kind != SEM_UNTYPED_INTEGER) {
+                fail(ctx, target->index.index->span,
+                     "index must be an integer");
+                return false;
+            }
+            if (finalize_type(ctx, index, target->index.index->span) == NULL)
+                return false;
+            SemType *element = base->type->inner;
+            if (statement->assignment.operator != CC_AST_ASSIGNMENT_ASSIGN &&
+                element->kind != SEM_INTEGER &&
+                element->kind != SEM_FLOAT) {
+                fail(ctx, target->span,
+                     "compound assignment requires a numeric variable");
+                return false;
+            }
+            return check_expr(ctx, statement->assignment.value, element)
+                != NULL;
+        }
         if (target->kind != CC_AST_EXPRESSION_IDENTIFIER) {
             fail(ctx, target->span, "assignment target is not a variable");
             return false;

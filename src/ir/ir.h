@@ -10,6 +10,7 @@
 #include <stdio.h>
 
 #define CC_IR_NONE UINT32_MAX
+#define CC_IR_USIZE (UINT32_MAX - 1U)
 
 typedef uint32_t CcIrType;
 
@@ -21,7 +22,8 @@ enum {
 
 typedef enum {
     CC_IR_TYPE_TUPLE,
-    CC_IR_TYPE_OPTIONAL
+    CC_IR_TYPE_OPTIONAL,
+    CC_IR_TYPE_ARRAY
 } CcIrCompositeKind;
 
 typedef struct CcIrTypeInfo CcIrTypeInfo;
@@ -38,6 +40,7 @@ struct CcIrTypeInfo {
 typedef enum {
     CC_IR_CONST_I32,
     CC_IR_CONST_BOOL,
+    CC_IR_CONST_USIZE,
     CC_IR_LOAD,
     CC_IR_STORE,
     CC_IR_NEG,
@@ -64,7 +67,10 @@ typedef enum {
     CC_IR_MAKE_TUPLE,
     CC_IR_GET_TUPLE,
     CC_IR_MAKE_SOME,
-    CC_IR_MAKE_NONE
+    CC_IR_MAKE_NONE,
+    CC_IR_MAKE_ARRAY,
+    CC_IR_GET_ARRAY,
+    CC_IR_STORE_INDEX
 } CcIrOpcode;
 
 typedef enum {
@@ -90,6 +96,7 @@ struct CcIrInstruction {
     uint32_t rhs;
     uint32_t slot;
     int32_t constant;
+    uint64_t wide_constant;
     uint32_t callee;
     uint32_t arg_count;
     uint32_t *args;

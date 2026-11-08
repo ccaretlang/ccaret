@@ -1,0 +1,4 @@
+fn main() -> i32 {
+    let value: [2](i32, ?i32) = [(20, some(1)), (22, none)];
+    return value[0].0 + value[1].0;
+}

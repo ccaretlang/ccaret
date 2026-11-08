@@ -1,0 +1,7 @@
+fn main() -> i32 {
+    let empty: [0]bool = [];
+    if empty.len == 0 {
+        return 42;
+    }
+    return 1;
+}

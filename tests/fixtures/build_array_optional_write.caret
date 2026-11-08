@@ -1,0 +1,9 @@
+fn main() -> i32 {
+    var values: [2]?i32 = [none, none];
+    values[0] = some(42);
+    values[1] = some(0);
+    if values.len == 2 {
+        return 42;
+    }
+    return 0;
+}

@@ -1,0 +1,19 @@
+fn make(n: i32) -> [3]i32 {
+    return [n, n + 1, n + 2];
+}
+
+fn first(arr: [3]i32) -> i32 {
+    return arr[0];
+}
+
+fn main() -> i32 {
+    var original: [3]i32 = make(10);
+    var copy: [3]i32 = original;
+    copy[0] = 20;
+    original[1] += 1;
+    if first(original) == 10 && first(copy) == 20 &&
+       original[1] == 12 {
+        return 42;
+    }
+    return 1;
+}

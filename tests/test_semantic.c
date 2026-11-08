@@ -162,7 +162,15 @@ static void test_valid_programs(void)
         " for i in -2147483648..=-2147483647 { sum += 1; }"
         " return sum; }",
         "fn f() -> i32 { var n: i32 = 1; n &= 3; n ^= 2;"
-        " n |= 4; return ~n + (2147483647 +% 1); }"
+        " n |= 4; return ~n + (2147483647 +% 1); }",
+        "fn f() -> [2]i32 { return [20, 22]; }",
+        "fn f() { let a = [1, 2,]; let x = a[0]; }",
+        "fn f() -> [0]bool { return []; }",
+        "fn f() { let a: [2]?i32 = [some(1), none]; }",
+        "fn f() { var a: [2]i32 = [1, 2]; a[0] = 10;"
+        " a[1] += 1; }",
+        "fn f(a: [2][2]i32) -> i32 { return a[0][1]; }",
+        "fn f(a: [3]i32) -> usize { return a.len; }"
     };
 
     for (size_t i = 0; i < sizeof(programs) / sizeof(programs[0]); i++)
@@ -265,6 +273,20 @@ static void test_invalid_programs(void)
         { "fn f() { var n: bool = true; n &= false; }",
           "compound assignment requires a numeric variable", "n" },
         { "fn f() { let n: i32 = ~true; }",
+          "type mismatch", "true" },
+        { "fn f() { let a = []; }",
+          "empty array requires a type context", "[]" },
+        { "fn f() { let a: [3]i32 = [1, 2]; }",
+          "array literal length mismatch", "[1, 2]" },
+        { "fn f() { let a = [1, true]; }",
+          "type mismatch", "true" },
+        { "fn f() { let a: [2]i32 = [1,2]; a[0] = 3; }",
+          "cannot assign to immutable binding", "a[0]" },
+        { "fn f() { var a: [2]bool = [true,false]; a[0] += true; }",
+          "compound assignment requires a numeric variable", "a[0]" },
+        { "fn f() { var a: [2]i32 = [1,2]; a[true] = 3; }",
+          "index must be an integer", "true" },
+        { "fn f() { var a: [2]i32 = [1,2]; a[0] = true; }",
           "type mismatch", "true" },
         { "fn f(x: void) {}", "parameter cannot have void type", "void" },
         { "fn f() { let x: void = (); }",

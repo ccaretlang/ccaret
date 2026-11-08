@@ -1,0 +1,12 @@
+fn left() -> i32 {
+    return 10;
+}
+
+fn right() -> i32 {
+    return 32;
+}
+
+fn main() -> i32 {
+    let values: [2]i32 = [left(), right()];
+    return values[0] + values[1];
+}

@@ -21,7 +21,7 @@ static const CcIrFunction *find_function(const CcIrModule *module,
 
 static bool valid_type(const CcIrModule *module, CcIrType id)
 {
-    return id < 3 ||
+    return id < 3 || id == CC_IR_USIZE ||
         (id < module->type_count && cc_ir_type_info(module, id) != NULL);
 }
 
@@ -65,6 +65,10 @@ static bool validate_instruction(const CcIrModule *module,
         if (i->type != CC_IR_BOOL ||
             (i->constant != 0 && i->constant != 1))
             return fail(error, i->span, "IR verifier: bad boolean constant");
+        break;
+    case CC_IR_CONST_USIZE:
+        if (i->type != CC_IR_USIZE || i->wide_constant > SIZE_MAX)
+            return fail(error, i->span, "IR verifier: bad usize constant");
         break;
     case CC_IR_LOAD:
         if (i->slot >= slot_count || i->type != slots[i->slot] ||
@@ -111,7 +115,9 @@ static bool validate_instruction(const CcIrModule *module,
     case CC_IR_NE:
         if (i->type != CC_IR_BOOL || i->lhs >= register_count ||
             !defined[i->lhs] ||
-            (types[i->lhs] != CC_IR_I32 && types[i->lhs] != CC_IR_BOOL) ||
+            (types[i->lhs] != CC_IR_I32 &&
+             types[i->lhs] != CC_IR_BOOL &&
+             types[i->lhs] != CC_IR_USIZE) ||
             !USE(i->lhs, types[i->lhs]) || !USE(i->rhs, types[i->lhs]))
             return fail(error, i->span, "IR verifier: invalid equality");
         break;
@@ -166,6 +172,42 @@ static bool validate_instruction(const CcIrModule *module,
                         "IR verifier: invalid none constructor");
         break;
     }
+    case CC_IR_MAKE_ARRAY: {
+        const CcIrTypeInfo *array = cc_ir_type_info(module, i->type);
+        if (array == NULL || array->kind != CC_IR_TYPE_ARRAY ||
+            array->count != i->arg_count ||
+            (i->arg_count != 0 && i->args == NULL))
+            return fail(error, i->span,
+                        "IR verifier: invalid array constructor");
+        for (uint32_t a = 0; a < i->arg_count; a++)
+            if (!USE(i->args[a], array->inner)) return false;
+        break;
+    }
+    case CC_IR_GET_ARRAY: {
+        if (i->lhs >= register_count || !defined[i->lhs])
+            return fail(error, i->span,
+                        "IR verifier: invalid array projection");
+        CcIrType source = types[i->lhs];
+        const CcIrTypeInfo *array = cc_ir_type_info(module, source);
+        if (array == NULL || array->kind != CC_IR_TYPE_ARRAY ||
+            i->type != array->inner || i->arg_count != array->count ||
+            !USE(i->lhs, source) || !USE(i->rhs, CC_IR_I32))
+            return fail(error, i->span,
+                        "IR verifier: invalid array projection");
+        break;
+    }
+    case CC_IR_STORE_INDEX: {
+        const CcIrTypeInfo *array =
+            i->slot < slot_count
+                ? cc_ir_type_info(module, slots[i->slot]) : NULL;
+        if (i->type != CC_IR_VOID || array == NULL ||
+            array->kind != CC_IR_TYPE_ARRAY ||
+            i->arg_count != array->count ||
+            !USE(i->lhs, CC_IR_I32) || !USE(i->rhs, array->inner))
+            return fail(error, i->span,
+                        "IR verifier: invalid array indexed store");
+        break;
+    }
     default:
         return fail(error, i->span, "IR verifier: unknown instruction");
     }
@@ -194,27 +236,43 @@ bool cc_ir_verify(const CcIrModule *module, CcIrError *error)
          type = type->next) {
         if (type->id != type_id++ ||
             (type->kind != CC_IR_TYPE_TUPLE &&
-             type->kind != CC_IR_TYPE_OPTIONAL))
+             type->kind != CC_IR_TYPE_OPTIONAL &&
+             type->kind != CC_IR_TYPE_ARRAY))
             return fail(error, error->span, "IR verifier: invalid type table");
         if (type->kind == CC_IR_TYPE_OPTIONAL) {
-            if (type->inner == CC_IR_VOID || type->inner >= type->id)
+            if (type->count != 0 || type->members != NULL ||
+                type->inner == CC_IR_VOID ||
+                (type->inner >= type->id &&
+                 type->inner != CC_IR_USIZE))
                 return fail(error, error->span,
                             "IR verifier: invalid optional type");
+        } else if (type->kind == CC_IR_TYPE_ARRAY) {
+            if (type->inner == CC_IR_VOID ||
+                (type->inner >= type->id &&
+                 type->inner != CC_IR_USIZE) ||
+                type->count > 65536U || type->members != NULL)
+                return fail(error, error->span,
+                            "IR verifier: invalid array type");
         } else {
-            if (type->count != 0 && type->members == NULL)
+            if (type->inner != CC_IR_VOID ||
+                (type->count != 0 && type->members == NULL))
                 return fail(error, error->span,
                             "IR verifier: invalid tuple type");
             for (uint32_t i = 0; i < type->count; i++)
                 if (type->members[i] == CC_IR_VOID ||
-                    type->members[i] >= type->id)
+                    (type->members[i] >= type->id &&
+                     type->members[i] != CC_IR_USIZE))
                     return fail(error, error->span,
                                 "IR verifier: invalid tuple element type");
         }
         for (const CcIrTypeInfo *other = module->types; other != type;
              other = other->next) {
             if (type->kind != other->kind) continue;
-            if (type->kind == CC_IR_TYPE_OPTIONAL) {
-                if (type->inner == other->inner)
+            if (type->kind == CC_IR_TYPE_OPTIONAL ||
+                type->kind == CC_IR_TYPE_ARRAY) {
+                if (type->inner == other->inner &&
+                    (type->kind != CC_IR_TYPE_ARRAY ||
+                     type->count == other->count))
                     return fail(error, error->span,
                                 "IR verifier: duplicate composite type");
             } else if (type->count == other->count &&

@@ -41,6 +41,7 @@ typedef enum {
     CC_AST_EXPRESSION_IDENTIFIER,
     CC_AST_EXPRESSION_PARENTHESIZED,
     CC_AST_EXPRESSION_TUPLE,
+    CC_AST_EXPRESSION_ARRAY,
     CC_AST_EXPRESSION_UNARY,
     CC_AST_EXPRESSION_BINARY,
     CC_AST_EXPRESSION_CALL,
@@ -186,6 +187,7 @@ struct CcExpression {
         CcSourceSpan identifier_name;
         CcExpression *parenthesized_inner;
         CcTupleExpressionElement *tuple_elements;
+        CcTupleExpressionElement *array_elements;
         struct {
             CcExpression *operand;
             CcUnaryOperator operator;

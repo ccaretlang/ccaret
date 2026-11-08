@@ -1,0 +1,8 @@
+fn main() -> i32 {
+    var numbers: [3]i32 = [0, 1, 2];
+    for i in 0..3 {
+        numbers[i] = i * 7;
+    }
+    numbers[1] += 21;
+    return numbers[0] + numbers[1] + numbers[2];
+}

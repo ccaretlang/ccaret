@@ -1,0 +1,4 @@
+fn main() -> i32 {
+    let data: [3]i32 = [10, 20, 12];
+    return data[0] + data[1] + data[2];
+}

@@ -1,0 +1,5 @@
+fn main() -> i32 {
+    var grid: [2][2]i32 = [[0, 0], [10, 11]];
+    grid[0] = [10, 11];
+    return grid[0][0] + grid[0][1] + grid[1][0] + grid[1][1];
+}

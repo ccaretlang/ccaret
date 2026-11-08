@@ -1,0 +1,5 @@
+fn unsupported(data: [65537]i32) {}
+
+fn main() -> i32 {
+    return 42;
+}

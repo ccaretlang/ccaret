@@ -243,6 +243,39 @@ static bool integer_value(const CcParser *parser, CcToken token,
 
 static CcExpression *parse_primary(CcParser *parser)
 {
+    if (parser->current.kind == CC_TOKEN_LBRACKET) {
+        CcToken opening = parser->current;
+        advance(parser);
+        CcTupleExpressionElement *first = NULL;
+        CcTupleExpressionElement **link = &first;
+        if (parser->current.kind != CC_TOKEN_RBRACKET) {
+            for (;;) {
+                CcExpression *value = parse_expression(parser);
+                if (parser->failed || value == NULL) return NULL;
+                CcTupleExpressionElement *element =
+                    allocate(parser, sizeof(*element));
+                if (element == NULL) return NULL;
+                element->value = value;
+                element->next = NULL;
+                *link = element;
+                link = &element->next;
+                if (!accept(parser, CC_TOKEN_COMMA, NULL)) break;
+                if (parser->current.kind == CC_TOKEN_RBRACKET) break;
+            }
+        }
+        CcToken closing;
+        if (!expect(parser, CC_TOKEN_RBRACKET,
+                    "expected `]` after array literal", &closing))
+            return NULL;
+        CcExpression *array = allocate(parser, sizeof(*array));
+        if (array == NULL) return NULL;
+        array->kind = CC_AST_EXPRESSION_ARRAY;
+        array->span.file_id = opening.span.file_id;
+        array->span.start = opening.span.start;
+        array->span.end = closing.span.end;
+        array->array_elements = first;
+        return array;
+    }
     if (parser->current.kind == CC_TOKEN_INTEGER_LITERAL) {
         CcToken token = parser->current;
         unsigned long long value = 0;

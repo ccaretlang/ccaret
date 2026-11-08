@@ -1,0 +1,7 @@
+fn main() -> i32 {
+    let sizes: [2]usize = [2, 3];
+    if sizes[0] == 2 && 3 == sizes[1] {
+        return 42;
+    }
+    return 0;
+}

@@ -10,6 +10,7 @@ static void emit_c_type(FILE *out, CcIrType type)
     case CC_IR_VOID: fputs("void", out); return;
     case CC_IR_I32: fputs("int32_t", out); return;
     case CC_IR_BOOL: fputs("bool", out); return;
+    case CC_IR_USIZE: fputs("size_t", out); return;
     default: fprintf(out, "cc_t_%u", type); return;
     }
 }
@@ -23,6 +24,10 @@ static void emit_type_definitions(FILE *out, const CcIrModule *module)
             fputs("  bool has;\n  ", out);
             emit_c_type(out, type->inner);
             fputs(" value;\n", out);
+        } else if (type->kind == CC_IR_TYPE_ARRAY && type->count != 0) {
+            fputs("  ", out);
+            emit_c_type(out, type->inner);
+            fprintf(out, " elements[%u];\n", type->count);
         } else if (type->count == 0) {
             fputs("  uint8_t _unit;\n", out);
         } else {
@@ -80,6 +85,10 @@ static void emit_instruction(FILE *out, const CcIrInstruction *i)
         else fprintf(out, "INT32_C(%" PRId32 ")", i->constant);
         break;
     case CC_IR_CONST_BOOL: fputs(i->constant ? "true" : "false", out); break;
+    case CC_IR_CONST_USIZE:
+        fprintf(out, "((size_t)UINT64_C(%" PRIu64 "))",
+                i->wide_constant);
+        break;
     case CC_IR_LOAD: fprintf(out, "s%u", i->slot); break;
     case CC_IR_STORE:
         fprintf(out, "s%u = r%u", i->slot, i->lhs); break;
@@ -150,6 +159,33 @@ static void emit_instruction(FILE *out, const CcIrInstruction *i)
     case CC_IR_MAKE_NONE:
         fprintf(out, "(cc_t_%u){0}", i->type);
         break;
+    case CC_IR_MAKE_ARRAY:
+        fprintf(out, "(cc_t_%u){", i->type);
+        if (i->arg_count == 0) fputs("0", out);
+        else {
+            fputs(" .elements = {", out);
+            for (uint32_t a = 0; a < i->arg_count; a++)
+                fprintf(out, "%sr%u", a == 0 ? " " : ", ", i->args[a]);
+            fputs(" }", out);
+        }
+        fputs(" }", out);
+        break;
+    case CC_IR_GET_ARRAY:
+        if (i->arg_count == 0)
+            fprintf(out, "(ccrt_index_i32(r%u, 0), r%u)",
+                    i->rhs, i->result);
+        else
+            fprintf(out, "r%u.elements[ccrt_index_i32(r%u, %u)]",
+                    i->lhs, i->rhs, i->arg_count);
+        break;
+    case CC_IR_STORE_INDEX:
+        if (i->arg_count == 0)
+            fprintf(out, "(void)ccrt_index_i32(r%u, 0)", i->lhs);
+        else
+            fprintf(out,
+                    "s%u.elements[ccrt_index_i32(r%u, %u)] = r%u",
+                    i->slot, i->lhs, i->arg_count, i->rhs);
+        break;
     }
     fputs(";\n", out);
 }
@@ -190,6 +226,7 @@ static bool emit_function(FILE *out, const CcIrFunction *fn)
         if (slot->id < fn->param_count) fprintf(out, "a%u", slot->id);
         else if (slot->type == CC_IR_BOOL) fputs("false", out);
         else if (slot->type == CC_IR_I32) fputs("INT32_C(0)", out);
+        else if (slot->type == CC_IR_USIZE) fputs("((size_t)0)", out);
         else fprintf(out, "(cc_t_%u){0}", slot->type);
         fputs(";\n", out);
         fprintf(out, "  (void)s%u;\n", slot->id);
@@ -202,6 +239,7 @@ static bool emit_function(FILE *out, const CcIrFunction *fn)
         fprintf(out, " r%u = ", reg->id);
         if (reg->type == CC_IR_BOOL) fputs("false", out);
         else if (reg->type == CC_IR_I32) fputs("INT32_C(0)", out);
+        else if (reg->type == CC_IR_USIZE) fputs("((size_t)0)", out);
         else fprintf(out, "(cc_t_%u){0}", reg->type);
         fputs(";\n", out);
         fprintf(out, "  (void)r%u;\n", reg->id);
@@ -254,6 +292,7 @@ bool cc_c_emit(FILE *out, const CcIrModule *module, CcIrError *error)
     fputs("/* Generated from verified C^ IR. Do not edit. */\n"
           "#include <stdbool.h>\n"
           "#include <stdint.h>\n"
+          "#include <stddef.h>\n"
           "#include <limits.h>\n"
           "#include <stdlib.h>\n\n"
           "int32_t ccrt_checked_i32(int64_t value) {\n"
@@ -307,6 +346,10 @@ bool cc_c_emit(FILE *out, const CcIrModule *module, CcIrError *error)
           "}\n"
           "int32_t ccrt_bit_not_i32(int32_t a) {\n"
           "  return ccrt_from_bits_i32(~(uint32_t)a);\n"
+          "}\n"
+          "size_t ccrt_index_i32(int32_t index, size_t length) {\n"
+          "  if (index < 0 || (size_t)index >= length) abort();\n"
+          "  return (size_t)index;\n"
           "}\n\n", out);
 
     emit_type_definitions(out, module);

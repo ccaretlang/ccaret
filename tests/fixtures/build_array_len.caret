@@ -1,0 +1,10 @@
+fn get_len(a: [3]i32) -> usize {
+    return a.len;
+}
+
+fn main() -> i32 {
+    if get_len([4, 5, 6]) == 3 && 3 == get_len([4, 5, 6]) {
+        return 42;
+    }
+    return 1;
+}

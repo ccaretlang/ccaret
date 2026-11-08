@@ -1,0 +1,5 @@
+fn main() -> i32 {
+    var array: [2]i32 = [0, 0];
+    array[2] = 42;
+    return 0;
+}

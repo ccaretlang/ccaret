@@ -2762,6 +2762,44 @@ static void test_empty_source_without_functions(void)
     fixture_destroy(&fixture);
 }
 
+static void test_array_literals(void)
+{
+    ParserFixture f;
+    fixture_init(&f,
+        "fn f() {"
+        " let a: [2](i32, bool) = [(1, true), (2, false),];"
+        " let empty: [0]i32 = [];"
+        " let x = [10, 20][1];"
+        " }");
+    CcFunctionDeclaration *fn = cc_parser_parse_program(&f.parser);
+    assert(fn != NULL && !f.parser.failed);
+    CcStatement *stmt = fn->body->first;
+    assert(stmt != NULL && stmt->kind == CC_AST_STATEMENT_LET);
+    assert(stmt->let.type->kind == CC_AST_TYPE_ARRAY);
+    CcExpression *literal = stmt->let.initializer;
+    assert(literal->kind == CC_AST_EXPRESSION_ARRAY);
+    assert(literal->array_elements != NULL);
+    assert(literal->array_elements->value->kind == CC_AST_EXPRESSION_TUPLE);
+    assert(literal->array_elements->next != NULL);
+    assert(literal->array_elements->next->next == NULL);
+    stmt = stmt->next;
+    assert(stmt != NULL && stmt->let.initializer->kind ==
+           CC_AST_EXPRESSION_ARRAY);
+    assert(stmt->let.initializer->array_elements == NULL);
+    stmt = stmt->next;
+    assert(stmt != NULL && stmt->let.initializer->kind ==
+           CC_AST_EXPRESSION_INDEX);
+    assert(stmt->let.initializer->index.operand->kind ==
+           CC_AST_EXPRESSION_ARRAY);
+    fixture_destroy(&f);
+
+    fixture_init(&f, "fn f() { let x = [1,,2]; }");
+    cc_parser_parse_program(&f.parser);
+    assert(f.parser.failed);
+    assert(strcmp(f.parser.error, "expected expression") == 0);
+    fixture_destroy(&f);
+}
+
 int main(void)
 {
     test_simple_function();
@@ -2835,6 +2873,7 @@ int main(void)
     test_for_statement();
     test_for_inclusive_range_precedence();
     test_for_unterminated_body();
+    test_array_literals();
     test_parse_errors();
     test_empty_source_without_functions();
 

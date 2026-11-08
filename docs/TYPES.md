@@ -51,6 +51,14 @@ These rules must hold at every GCC optimization level. The backend must not rely
 
 Arrays and slices are different types. Any implicit array to slice conversion needs an exact rule. A slice does not own memory and cannot stop a use-after-free.
 
+In the bootstrap fixed-array subset, `[N]T` values copy by value,
+including when passed to and returned from functions. Array elements
+can be indexed with an `i32` expression; negative or out-of-bounds
+indices trap. A mutable local array supports element assignment and
+`i32` compound element assignments. Its length is a `usize` value.
+The current C17 backend limits `N` to 65536, independently of the
+language's eventual layout and allocation limits.
+
 ## Structs, enums and unions
 
 ```caret

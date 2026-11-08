@@ -1,0 +1,9 @@
+fn main() -> i32 {
+    let flags: [3]bool = [false || true, true && true, false];
+    var index: i32 = 0;
+    index += 1;
+    if flags[index] && flags[0] {
+        return 42;
+    }
+    return 0;
+}

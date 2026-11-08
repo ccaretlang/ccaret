@@ -8,6 +8,7 @@ static void print_type(FILE *out, CcIrType type)
     case CC_IR_VOID: fputs("void", out); return;
     case CC_IR_I32: fputs("i32", out); return;
     case CC_IR_BOOL: fputs("bool", out); return;
+    case CC_IR_USIZE: fputs("usize", out); return;
     default: fprintf(out, "t%u", type); return;
     }
 }
@@ -17,6 +18,7 @@ static const char *op_name(CcIrOpcode op)
     switch (op) {
     case CC_IR_CONST_I32: return "const.i32";
     case CC_IR_CONST_BOOL: return "const.bool";
+    case CC_IR_CONST_USIZE: return "const.usize";
     case CC_IR_LOAD: return "load";
     case CC_IR_STORE: return "store";
     case CC_IR_NEG: return "neg.checked";
@@ -44,6 +46,9 @@ static const char *op_name(CcIrOpcode op)
     case CC_IR_GET_TUPLE: return "tuple.get";
     case CC_IR_MAKE_SOME: return "some";
     case CC_IR_MAKE_NONE: return "none";
+    case CC_IR_MAKE_ARRAY: return "array";
+    case CC_IR_GET_ARRAY: return "array.get";
+    case CC_IR_STORE_INDEX: return "array.store";
     }
     return "invalid";
 }
@@ -56,6 +61,9 @@ bool cc_ir_print(FILE *out, const CcIrModule *module)
         fprintf(out, "type t%u = ", type->id);
         if (type->kind == CC_IR_TYPE_OPTIONAL) {
             fputc('?', out);
+            print_type(out, type->inner);
+        } else if (type->kind == CC_IR_TYPE_ARRAY) {
+            fprintf(out, "[%u]", type->count);
             print_type(out, type->inner);
         } else {
             fputc('(', out);
@@ -95,6 +103,9 @@ bool cc_ir_print(FILE *out, const CcIrModule *module)
                 case CC_IR_CONST_BOOL:
                     fprintf(out, " %s", i->constant ? "true" : "false");
                     break;
+                case CC_IR_CONST_USIZE:
+                    fprintf(out, " %" PRIu64, i->wide_constant);
+                    break;
                 case CC_IR_LOAD:
                     fprintf(out, " slot%u", i->slot); break;
                 case CC_IR_STORE:
@@ -122,6 +133,21 @@ bool cc_ir_print(FILE *out, const CcIrModule *module)
                     fprintf(out, " %%%u", i->lhs);
                     break;
                 case CC_IR_MAKE_NONE:
+                    break;
+                case CC_IR_MAKE_ARRAY:
+                    fputc('(', out);
+                    for (uint32_t p = 0; p < i->arg_count; p++)
+                        fprintf(out, "%s%%%u", p == 0 ? "" : ", ",
+                                i->args[p]);
+                    fputc(')', out);
+                    break;
+                case CC_IR_GET_ARRAY:
+                    fprintf(out, " %%%u[%%%u] (length %u)",
+                            i->lhs, i->rhs, i->arg_count);
+                    break;
+                case CC_IR_STORE_INDEX:
+                    fprintf(out, " slot%u[%%%u] = %%%u (length %u)",
+                            i->slot, i->lhs, i->rhs, i->arg_count);
                     break;
                 default:
                     fprintf(out, " %%%u, %%%u", i->lhs, i->rhs);

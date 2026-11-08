@@ -55,6 +55,18 @@ floating-point literal. Ordinary floats such as `1.5` are unchanged.
 These are syntax rules; matching tuple arity and component types, checking
 binding names and lowering tuple values are responsibilities of later phases.
 
+## Fixed-array literals
+
+A fixed-array value can be constructed with `[x, y, z]`, including a
+trailing comma (`[x, y,]`). Elements are evaluated left-to-right.
+The empty literal `[]` requires a contextual type such as
+`let data: [0]i32 = [];`; a nonempty literal without a type
+annotation infers `[N]T` from its first element and checks all
+remaining elements against `T`. A literal's length must match any
+explicit `[N]T` type. Types and values permit nesting with tuples,
+optionals, and other fixed arrays. Indexing uses `arr[index]`;
+fixed-array length uses `arr.len` and has type `usize`.
+
 ## Operator precedence (highest to lowest)
 
 | Level | Operators | Associativity |

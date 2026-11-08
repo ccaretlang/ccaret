@@ -302,6 +302,9 @@ static void test_invalid_tuple_ir(void)
     type->members[0] = type->id;
     expect_invalid(f.module, "IR verifier: invalid tuple element type");
     type->members[0] = saved_member;
+    type->inner = CC_IR_I32;
+    expect_invalid(f.module, "IR verifier: invalid tuple type");
+    type->inner = CC_IR_VOID;
     type->id = 99;
     expect_invalid(f.module, "IR verifier: invalid type table");
     type->id = 3;
@@ -357,6 +360,9 @@ static void test_invalid_optional_ir(void)
     type->inner = CC_IR_VOID;
     expect_invalid(f.module, "IR verifier: invalid optional type");
     type->inner = CC_IR_I32;
+    type->count = 1;
+    expect_invalid(f.module, "IR verifier: invalid optional type");
+    type->count = 0;
 
     CcIrError error;
     assert(cc_ir_verify(f.module, &error));
@@ -466,6 +472,100 @@ static void test_bitwise_wrapping_and_compound_ir(void)
     fixture_destroy(&f);
 }
 
+static void test_array_ir_and_verifier(void)
+{
+    Fixture f;
+    fixture_init(&f,
+        "fn main() -> i32 {"
+        " let flag: bool = true;"
+        " var data: [2]i32 = [20,22];"
+        " data[1] += 1;"
+        " if data.len == 2 { return data[0] + data[1]; }"
+        " return 0; }");
+    lower(&f);
+    assert(f.module->type_count == 4);
+    CcIrTypeInfo *array = f.module->types;
+    assert(array && array->kind == CC_IR_TYPE_ARRAY &&
+           array->count == 2 && array->inner == CC_IR_I32);
+    CcIrFunction *fn = f.module->functions;
+    CcIrInstruction *make = find_instruction(fn, CC_IR_MAKE_ARRAY);
+    CcIrInstruction *get = find_instruction(fn, CC_IR_GET_ARRAY);
+    CcIrInstruction *set = find_instruction(fn, CC_IR_STORE_INDEX);
+    CcIrInstruction *length = find_instruction(fn, CC_IR_CONST_USIZE);
+    CcIrInstruction *boolean = find_instruction(fn, CC_IR_CONST_BOOL);
+    assert(make && get && set && length && boolean);
+    assert(length->wide_constant == 2);
+
+    FILE *out = tmpfile();
+    assert(out != NULL);
+    assert(cc_ir_print(out, f.module));
+    rewind(out);
+    char text[16384];
+    size_t n = fread(text, 1, sizeof(text) - 1, out);
+    text[n] = '\0';
+    assert(strstr(text, "type t3 = [2]i32") != NULL);
+    assert(strstr(text, "const.usize 2") != NULL);
+    assert(strstr(text, "array(") != NULL);
+    assert(strstr(text, "array.get") != NULL);
+    assert(strstr(text, "array.store") != NULL);
+    assert(fclose(out) == 0);
+
+    uint32_t original_count = make->arg_count;
+    make->arg_count = 1;
+    expect_invalid(f.module, "IR verifier: invalid array constructor");
+    make->arg_count = original_count;
+    uint32_t original_arg = make->args[0];
+    make->args[0] = boolean->result;
+    expect_invalid(f.module,
+        "IR verifier: undefined, cross-block or mistyped register");
+    make->args[0] = original_arg;
+    get->arg_count = 4;
+    expect_invalid(f.module, "IR verifier: invalid array projection");
+    get->arg_count = 2;
+    uint32_t original_index = get->rhs;
+    get->rhs = boolean->result;
+    expect_invalid(f.module, "IR verifier: invalid array projection");
+    get->rhs = original_index;
+    uint32_t original_slot = set->slot;
+    set->slot = 0; /* Boolean local, not an array. */
+    expect_invalid(f.module, "IR verifier: invalid array indexed store");
+    set->slot = original_slot;
+    set->arg_count = 1;
+    expect_invalid(f.module, "IR verifier: invalid array indexed store");
+    set->arg_count = 2;
+    CcIrType original_type = length->type;
+    length->type = CC_IR_I32;
+    expect_invalid(f.module, "IR verifier: bad usize constant");
+    length->type = original_type;
+
+    array->count = 65537;
+    expect_invalid(f.module, "IR verifier: invalid array type");
+    array->count = 2;
+    array->inner = array->id;
+    expect_invalid(f.module, "IR verifier: invalid array type");
+    array->inner = CC_IR_I32;
+    CcIrType fake_member = CC_IR_I32;
+    array->members = &fake_member;
+    expect_invalid(f.module, "IR verifier: invalid array type");
+    array->members = NULL;
+    CcIrTypeInfo duplicate = *array;
+    duplicate.id = 4;
+    duplicate.next = NULL;
+    array->next = &duplicate;
+    f.module->type_count++;
+    expect_invalid(f.module, "IR verifier: duplicate composite type");
+    f.module->type_count--;
+    array->next = NULL;
+
+    CcIrError error;
+    assert(cc_ir_verify(f.module, &error));
+    out = tmpfile();
+    assert(out != NULL);
+    assert(cc_c_emit(out, f.module, &error));
+    assert(fclose(out) == 0);
+    fixture_destroy(&f);
+}
+
 static void test_explicit_unsupported(void)
 {
     Fixture f;
@@ -480,7 +580,7 @@ static void test_explicit_unsupported(void)
     assert(!cc_ir_lower(file, program, &f.arena, &f.module, &error));
     assert(error.message != NULL);
     assert(strcmp(error.message,
-           "IR backend currently supports only i32, bool, void, tuples and optionals") == 0);
+           "IR backend currently supports only i32, usize, bool, void, tuples, optionals and fixed arrays") == 0);
     assert(error.span.file_id == f.file_id);
     fixture_destroy(&f);
 }
@@ -508,6 +608,7 @@ int main(void)
     test_invalid_optional_ir();
     test_for_range_cfg_and_bounds_once();
     test_bitwise_wrapping_and_compound_ir();
+    test_array_ir_and_verifier();
     test_explicit_unsupported();
     test_bad_inputs();
     puts("IR: all tests passed");

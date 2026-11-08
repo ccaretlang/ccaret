@@ -1,0 +1,19 @@
+fn index(flag: bool) -> i32 {
+    if flag {
+        return 0;
+    }
+    return 1;
+}
+
+fn value(flag: bool) -> i32 {
+    if flag {
+        return 22;
+    }
+    return 0;
+}
+
+fn main() -> i32 {
+    var a: [2]i32 = [1, 20];
+    a[index(true || false)] = value(true && true);
+    return a[0] + a[1];
+}

@@ -75,8 +75,10 @@ static CcIrType intern_type(Lower *ctx, CcIrCompositeKind kind,
     for (CcIrTypeInfo *info = ctx->module->types; info != NULL;
          info = info->next) {
         if (info->kind != kind) continue;
-        if (kind == CC_IR_TYPE_OPTIONAL) {
-            if (info->inner == inner) return info->id;
+        if (kind == CC_IR_TYPE_OPTIONAL || kind == CC_IR_TYPE_ARRAY) {
+            if (info->inner == inner &&
+                (kind != CC_IR_TYPE_ARRAY || info->count == count))
+                return info->id;
             continue;
         }
         if (info->count != count) continue;
@@ -85,7 +87,7 @@ static CcIrType intern_type(Lower *ctx, CcIrCompositeKind kind,
             if (info->members[i] != members[i]) break;
         if (i == count) return info->id;
     }
-    if (ctx->module->type_count == CC_IR_NONE) {
+    if (ctx->module->type_count >= CC_IR_USIZE) {
         error_at(ctx, span, "too many IR types");
         return CC_IR_NONE;
     }
@@ -96,7 +98,7 @@ static CcIrType intern_type(Lower *ctx, CcIrCompositeKind kind,
     info->kind = kind;
     info->inner = inner;
     info->count = count;
-    if (count != 0) {
+    if (kind == CC_IR_TYPE_TUPLE && count != 0) {
         info->members = new_object(ctx, count * sizeof(*members), span);
         if (info->members == NULL) return CC_IR_NONE;
         memcpy(info->members, members, count * sizeof(*members));
@@ -128,6 +130,42 @@ static bool name_is(Lower *ctx, CcSourceSpan a, const char *name)
            memcmp(ctx->file->bytes + a.start, name, size) == 0;
 }
 
+static bool array_length(const CcExpression *expr, uint64_t *out)
+{
+    switch (expr->kind) {
+    case CC_AST_EXPRESSION_INTEGER_LITERAL:
+        if (expr->integer_literal.overflow) return false;
+        *out = expr->integer_literal.value;
+        return true;
+    case CC_AST_EXPRESSION_PARENTHESIZED:
+        return array_length(expr->parenthesized_inner, out);
+    case CC_AST_EXPRESSION_BINARY: {
+        uint64_t a, b;
+        if (!array_length(expr->binary.left, &a) ||
+            !array_length(expr->binary.right, &b)) return false;
+        switch (expr->binary.operator) {
+        case CC_AST_BINARY_OPERATOR_PLUS:
+            if (UINT64_MAX - a < b) return false;
+            *out = a + b; return true;
+        case CC_AST_BINARY_OPERATOR_MINUS:
+            if (a < b) return false;
+            *out = a - b; return true;
+        case CC_AST_BINARY_OPERATOR_STAR:
+            if (b != 0 && a > UINT64_MAX / b) return false;
+            *out = a * b; return true;
+        case CC_AST_BINARY_OPERATOR_SLASH:
+            if (b == 0) return false;
+            *out = a / b; return true;
+        case CC_AST_BINARY_OPERATOR_PERCENT:
+            if (b == 0) return false;
+            *out = a % b; return true;
+        default: return false;
+        }
+    }
+    default: return false;
+    }
+}
+
 static bool type_of(Lower *ctx, const CcType *node, CcIrType *result,
                     CcSourceSpan fallback)
 {
@@ -148,6 +186,10 @@ static bool type_of(Lower *ctx, const CcType *node, CcIrType *result,
         }
         if (name_is(ctx, node->span, "bool")) {
             *result = CC_IR_BOOL;
+            return true;
+        }
+        if (name_is(ctx, node->span, "usize")) {
+            *result = CC_IR_USIZE;
             return true;
         }
     }
@@ -188,8 +230,28 @@ static bool type_of(Lower *ctx, const CcType *node, CcIrType *result,
                               members, node->span);
         return !ctx->failed;
     }
+    if (node->kind == CC_AST_TYPE_ARRAY) {
+        uint64_t length = 0;
+        if (!array_length(node->array.length, &length) ||
+            length > 65536U) {
+            error_at(ctx, node->span,
+                     "IR lowering: array length exceeds current C17 limit");
+            return false;
+        }
+        CcIrType element;
+        if (!type_of(ctx, node->array.element, &element, node->span))
+            return false;
+        if (element == CC_IR_VOID) {
+            error_at(ctx, node->span,
+                     "IR lowering: void array element unsupported");
+            return false;
+        }
+        *result = intern_type(ctx, CC_IR_TYPE_ARRAY, element,
+                              (uint32_t)length, NULL, node->span);
+        return !ctx->failed;
+    }
     error_at(ctx, node == NULL ? fallback : node->span,
-             "IR backend currently supports only i32, bool, void, tuples and optionals");
+             "IR backend currently supports only i32, usize, bool, void, tuples, optionals and fixed arrays");
     return false;
 }
 
@@ -329,6 +391,15 @@ static Value constant(Lower *ctx, CcIrType type, int32_t number,
     return result;
 }
 
+static Value constant_usize(Lower *ctx, uint64_t number,
+                            CcSourceSpan span)
+{
+    CcIrInstruction *node = NULL;
+    Value value = append(ctx, CC_IR_CONST_USIZE, CC_IR_USIZE, span, &node);
+    if (node != NULL) node->wide_constant = number;
+    return value;
+}
+
 static Value load(Lower *ctx, uint32_t slot, CcSourceSpan span)
 {
     CcIrInstruction *node = NULL;
@@ -420,6 +491,11 @@ static Value lower_expr(Lower *ctx, const CcExpression *expr,
     if (ctx->failed) return no_value();
     switch (expr->kind) {
     case CC_AST_EXPRESSION_INTEGER_LITERAL:
+        if (expected == CC_IR_USIZE &&
+            !expr->integer_literal.overflow &&
+            expr->integer_literal.value <= SIZE_MAX)
+            return constant_usize(ctx, expr->integer_literal.value,
+                                  expr->span);
         if (expr->integer_literal.overflow ||
             expr->integer_literal.value > INT32_MAX) {
             error_at(ctx, expr->span, "integer literal is not representable as i32");
@@ -500,6 +576,70 @@ static Value lower_expr(Lower *ctx, const CcExpression *expr,
         }
         return tuple;
     }
+    case CC_AST_EXPRESSION_ARRAY: {
+        uint32_t count = 0;
+        for (CcTupleExpressionElement *part = expr->array_elements;
+             part != NULL; part = part->next) count++;
+        const CcIrTypeInfo *hint = cc_ir_type_info(ctx->module, expected);
+        if (expected != CC_IR_NONE &&
+            (hint == NULL || hint->kind != CC_IR_TYPE_ARRAY ||
+             hint->count != count)) {
+            error_at(ctx, expr->span, "IR lowering: array type mismatch");
+            return no_value();
+        }
+        if (expected == CC_IR_NONE && count == 0) {
+            error_at(ctx, expr->span,
+                     "IR lowering: empty array requires type context");
+            return no_value();
+        }
+        if (count > 65536U) {
+            error_at(ctx, expr->span,
+                     "IR lowering: array length exceeds current C17 limit");
+            return no_value();
+        }
+        uint32_t *slots = NULL;
+        uint32_t *args = NULL;
+        if (count != 0) {
+            slots = new_object(ctx, count * sizeof(*slots), expr->span);
+            args = new_object(ctx, count * sizeof(*args), expr->span);
+            if (slots == NULL || args == NULL) return no_value();
+        }
+        CcIrType element_type = hint == NULL ? CC_IR_NONE : hint->inner;
+        uint32_t index = 0;
+        for (CcTupleExpressionElement *part = expr->array_elements;
+             part != NULL; part = part->next) {
+            Value value = lower_expr(ctx, part->value, element_type);
+            if (ctx->failed) return no_value();
+            if (element_type == CC_IR_NONE) element_type = value.type;
+            if (value.type != element_type || value.type == CC_IR_VOID) {
+                error_at(ctx, part->value->span,
+                         "IR lowering: array element type mismatch");
+                return no_value();
+            }
+            slots[index] = make_slot(ctx, value.type, part->value->span);
+            if (ctx->failed ||
+                !store(ctx, slots[index], value, part->value->span))
+                return no_value();
+            index++;
+        }
+        for (uint32_t p = 0; p < count; p++) {
+            Value item = load(ctx, slots[p], expr->span);
+            if (ctx->failed) return no_value();
+            args[p] = item.reg;
+        }
+        CcIrType type = hint == NULL
+            ? intern_type(ctx, CC_IR_TYPE_ARRAY, element_type, count,
+                          NULL, expr->span)
+            : expected;
+        if (ctx->failed) return no_value();
+        CcIrInstruction *node = NULL;
+        Value array = append(ctx, CC_IR_MAKE_ARRAY, type, expr->span, &node);
+        if (node != NULL) {
+            node->arg_count = count;
+            node->args = args;
+        }
+        return array;
+    }
     case CC_AST_EXPRESSION_TUPLE_MEMBER: {
         Value tuple = lower_expr(ctx, expr->tuple_member.operand, CC_IR_NONE);
         if (ctx->failed) return no_value();
@@ -519,6 +659,49 @@ static Value lower_expr(Lower *ctx, const CcExpression *expr,
             instruction->slot = index;
         }
         return element;
+    }
+    case CC_AST_EXPRESSION_INDEX: {
+        Value array = lower_expr(ctx, expr->index.operand, CC_IR_NONE);
+        if (ctx->failed) return no_value();
+        const CcIrTypeInfo *type = cc_ir_type_info(ctx->module, array.type);
+        if (type == NULL || type->kind != CC_IR_TYPE_ARRAY) {
+            error_at(ctx, expr->span,
+                     "IR lowering: indexing requires fixed array");
+            return no_value();
+        }
+        uint32_t saved = make_slot(ctx, array.type, expr->span);
+        if (ctx->failed || !store(ctx, saved, array, expr->span))
+            return no_value();
+        Value index = lower_expr(ctx, expr->index.index, CC_IR_I32);
+        if (ctx->failed) return no_value();
+        if (index.type != CC_IR_I32) {
+            error_at(ctx, expr->index.index->span,
+                     "IR lowering: array index requires i32");
+            return no_value();
+        }
+        array = load(ctx, saved, expr->span);
+        if (ctx->failed) return no_value();
+        CcIrInstruction *node = NULL;
+        Value item = append(ctx, CC_IR_GET_ARRAY, type->inner,
+                            expr->span, &node);
+        if (node != NULL) {
+            node->lhs = array.reg;
+            node->rhs = index.reg;
+            node->arg_count = type->count;
+        }
+        return item;
+    }
+    case CC_AST_EXPRESSION_MEMBER: {
+        Value array = lower_expr(ctx, expr->member.operand, CC_IR_NONE);
+        if (ctx->failed) return no_value();
+        const CcIrTypeInfo *type = cc_ir_type_info(ctx->module, array.type);
+        if (type == NULL || type->kind != CC_IR_TYPE_ARRAY ||
+            !name_is(ctx, expr->member.name, "len")) {
+            error_at(ctx, expr->span,
+                     "IR lowering: only fixed-array .len is supported");
+            return no_value();
+        }
+        return constant_usize(ctx, type->count, expr->span);
     }
     case CC_AST_EXPRESSION_NONE_LITERAL: {
         const CcIrTypeInfo *info = cc_ir_type_info(ctx->module, expected);
@@ -616,13 +799,29 @@ static Value lower_expr(Lower *ctx, const CcExpression *expr,
         uint32_t slot = make_slot(ctx, left.type, expr->span);
         if (ctx->failed || !store(ctx, slot, left, expr->span))
             return no_value();
-        Value right = lower_expr(ctx, expr->binary.right, CC_IR_NONE);
+        Value right = lower_expr(ctx, expr->binary.right,
+            (op == CC_IR_EQ || op == CC_IR_NE) ? left.type : CC_IR_NONE);
         if (ctx->failed) return no_value();
         if (left.type != right.type) {
-            error_at(ctx, expr->span, "IR operand type mismatch");
-            return no_value();
+            const CcExpression *literal = expr->binary.left;
+            while (literal->kind == CC_AST_EXPRESSION_PARENTHESIZED)
+                literal = literal->parenthesized_inner;
+            if ((op == CC_IR_EQ || op == CC_IR_NE) &&
+                left.type == CC_IR_I32 && right.type == CC_IR_USIZE &&
+                literal->kind == CC_AST_EXPRESSION_INTEGER_LITERAL &&
+                !literal->integer_literal.overflow) {
+                /* A context-free integer literal is initially i32. When
+                 * its RHS resolves to usize, re-materialize that pure
+                 * literal with the precise contextual type. */
+                left = constant_usize(ctx, literal->integer_literal.value,
+                                      literal->span);
+            } else {
+                error_at(ctx, expr->span, "IR operand type mismatch");
+                return no_value();
+            }
+        } else {
+            left = load(ctx, slot, expr->span);
         }
-        left = load(ctx, slot, expr->span);
         if (ctx->failed) return no_value();
         CcIrInstruction *node = NULL;
         Value result = append(ctx, op, result_type, expr->span, &node);
@@ -764,6 +963,106 @@ static bool lower_pattern(Lower *ctx, const CcPattern *pattern, Value value)
     return false;
 }
 
+static bool compound_opcode(CcAssignmentOperator operator, CcIrOpcode *out)
+{
+    switch (operator) {
+    case CC_AST_ASSIGNMENT_PLUS: *out = CC_IR_ADD; return true;
+    case CC_AST_ASSIGNMENT_MINUS: *out = CC_IR_SUB; return true;
+    case CC_AST_ASSIGNMENT_STAR: *out = CC_IR_MUL; return true;
+    case CC_AST_ASSIGNMENT_SLASH: *out = CC_IR_DIV; return true;
+    case CC_AST_ASSIGNMENT_PERCENT: *out = CC_IR_MOD; return true;
+    case CC_AST_ASSIGNMENT_AMP: *out = CC_IR_BIT_AND; return true;
+    case CC_AST_ASSIGNMENT_PIPE: *out = CC_IR_BIT_OR; return true;
+    case CC_AST_ASSIGNMENT_CARET: *out = CC_IR_BIT_XOR; return true;
+    default: return false;
+    }
+}
+
+static bool lower_index_assignment(Lower *ctx, const CcStatement *node)
+{
+    const CcExpression *target = node->assignment.target;
+    if (target->index.operand->kind != CC_AST_EXPRESSION_IDENTIFIER) {
+        error_at(ctx, target->span,
+                 "IR lowering: indexed assignment needs local array");
+        return false;
+    }
+    LowerVar *var = find_variable(ctx,
+                                  target->index.operand->identifier_name);
+    if (var == NULL) {
+        error_at(ctx, target->span, "IR lowering: unknown array binding");
+        return false;
+    }
+    const CcIrTypeInfo *array =
+        cc_ir_type_info(ctx->module, slot_type(ctx, var->slot));
+    if (array == NULL || array->kind != CC_IR_TYPE_ARRAY) {
+        error_at(ctx, target->span,
+                 "IR lowering: indexed assignment needs fixed array");
+        return false;
+    }
+    Value index = lower_expr(ctx, target->index.index, CC_IR_I32);
+    if (ctx->failed) return false;
+    if (index.type != CC_IR_I32) {
+        error_at(ctx, target->span, "IR lowering: array index requires i32");
+        return false;
+    }
+    uint32_t index_slot = make_slot(ctx, CC_IR_I32, target->span);
+    if (ctx->failed || !store(ctx, index_slot, index, target->span))
+        return false;
+
+    uint32_t old_slot = CC_IR_NONE;
+    CcIrOpcode opcode = CC_IR_ADD;
+    bool compound = node->assignment.operator != CC_AST_ASSIGNMENT_ASSIGN;
+    if (compound) {
+        if (array->inner != CC_IR_I32 ||
+            !compound_opcode(node->assignment.operator, &opcode)) {
+            error_at(ctx, target->span,
+                     "IR lowering: indexed compound assignment requires i32");
+            return false;
+        }
+        Value source = load(ctx, var->slot, target->span);
+        index = load(ctx, index_slot, target->span);
+        if (ctx->failed) return false;
+        CcIrInstruction *get = NULL;
+        Value old = append(ctx, CC_IR_GET_ARRAY, array->inner,
+                           target->span, &get);
+        if (get == NULL) return false;
+        get->lhs = source.reg;
+        get->rhs = index.reg;
+        get->arg_count = array->count;
+        old_slot = make_slot(ctx, array->inner, target->span);
+        if (ctx->failed || !store(ctx, old_slot, old, target->span))
+            return false;
+    }
+    Value rhs = lower_expr(ctx, node->assignment.value, array->inner);
+    if (ctx->failed) return false;
+    if (rhs.type != array->inner) {
+        error_at(ctx, node->span,
+                 "IR lowering: array assignment value mismatch");
+        return false;
+    }
+    if (compound) {
+        Value old = load(ctx, old_slot, node->span);
+        if (ctx->failed) return false;
+        CcIrInstruction *operation = NULL;
+        Value updated = append(ctx, opcode, CC_IR_I32,
+                               node->span, &operation);
+        if (operation == NULL) return false;
+        operation->lhs = old.reg;
+        operation->rhs = rhs.reg;
+        rhs = updated;
+    }
+    index = load(ctx, index_slot, target->span);
+    if (ctx->failed) return false;
+    CcIrInstruction *set = NULL;
+    append(ctx, CC_IR_STORE_INDEX, CC_IR_VOID, node->span, &set);
+    if (set == NULL) return false;
+    set->slot = var->slot;
+    set->lhs = index.reg;
+    set->rhs = rhs.reg;
+    set->arg_count = array->count;
+    return true;
+}
+
 static bool lower_statement(Lower *ctx, const CcStatement *node)
 {
     switch (node->kind) {
@@ -803,6 +1102,8 @@ static bool lower_statement(Lower *ctx, const CcStatement *node)
         return !ctx->failed;
     }
     case CC_AST_STATEMENT_ASSIGNMENT: {
+        if (node->assignment.target->kind == CC_AST_EXPRESSION_INDEX)
+            return lower_index_assignment(ctx, node);
         if (node->assignment.target->kind != CC_AST_EXPRESSION_IDENTIFIER) {
             error_at(ctx, node->span,
                      "IR lowering: complex assignment targets unsupported");
@@ -826,16 +1127,7 @@ static bool lower_statement(Lower *ctx, const CcStatement *node)
             return false;
         }
         CcIrOpcode opcode;
-        switch (node->assignment.operator) {
-        case CC_AST_ASSIGNMENT_PLUS: opcode = CC_IR_ADD; break;
-        case CC_AST_ASSIGNMENT_MINUS: opcode = CC_IR_SUB; break;
-        case CC_AST_ASSIGNMENT_STAR: opcode = CC_IR_MUL; break;
-        case CC_AST_ASSIGNMENT_SLASH: opcode = CC_IR_DIV; break;
-        case CC_AST_ASSIGNMENT_PERCENT: opcode = CC_IR_MOD; break;
-        case CC_AST_ASSIGNMENT_AMP: opcode = CC_IR_BIT_AND; break;
-        case CC_AST_ASSIGNMENT_PIPE: opcode = CC_IR_BIT_OR; break;
-        case CC_AST_ASSIGNMENT_CARET: opcode = CC_IR_BIT_XOR; break;
-        default:
+        if (!compound_opcode(node->assignment.operator, &opcode)) {
             error_at(ctx, node->span,
                      "IR lowering: compound shift not yet supported");
             return false;

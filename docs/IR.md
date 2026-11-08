@@ -8,9 +8,10 @@ The IR exists from the first working compiler. The AST must never emit final C c
 
 The first version now uses a typed, basic-block, non-SSA IR. Each function
 has typed parameters, local slots, temporaries, basic blocks and explicit
-terminators. Lowering supports `i32`, `bool`, `void`, structural tuples
-(including zero- and one-element tuples) and optional `?T` values, including
-nested aggregate types. Other source types still fail explicitly at IR
+terminators. Lowering supports `i32`, `bool`, `void`, a restricted `usize`,
+structural tuples (including zero- and one-element tuples), optional `?T`
+values and fixed arrays `[N]T` including nested aggregate types.
+Other source types still fail explicitly at IR
 lowering. SSA can be added later if measurements show it is worthwhile.
 
 ```text
@@ -21,8 +22,9 @@ block entry:
 ```
 
 Composite types have canonical, module-local IDs starting at `3` (IDs
-`0`–`2` designate `void`, `i32`, `bool`). Identical structural types
-are interned once. Tuple member types and optional payload types are
+`0`–`2` designate `void`, `i32`, `bool`; `usize` has a distinct
+reserved builtin ID). Identical structural types
+are interned once. Tuple members, optional payloads and array elements are
 defined before the enclosing type, and the verifier rejects invalid,
 forward, self-referential or duplicate composite definitions. `emit-ir`
 prints type definitions such as `type t3 = (i32, bool)` and
@@ -32,11 +34,11 @@ prints type definitions such as `type t3 = (i32, bool)` and
 
 | Category | Operations |
 |---|---|
-| Values | `const.i32`, `const.bool` |
+| Values | `const.i32`, `const.bool`, `const.usize` |
 | Arithmetic | Checked `add`, `sub`, `mul`, `div`, `mod`, unary `neg`; `add.wrap`, `sub.wrap`, `mul.wrap` for `i32` |
 | Logic | `not`, `bit.not`, `bit.and`, `bit.or`, `bit.xor`, equality and ordered comparisons |
 | Locals | `load`, `store` with typed slots |
-| Aggregates | `tuple` (construct), `tuple.get` (project numbered member) |
+| Aggregates | `tuple`/`tuple.get`, `array` (construct), `array.get` (checked index), `array.store` (checked mutable local write) |
 | Tagged values | `some`, `none` (construct optional values) |
 | Calls | Direct `call`, including aggregate parameters and results |
 | Control | `br`, `condbr`, `ret`, `trap` |
@@ -56,6 +58,15 @@ condition is `index < end` or `index <= end`; the `continue` edge
 passes through an increment block. Inclusive loops test `index == end`
 before incrementing so the maximum signed endpoint never overflows.
 The immutable index binding has loop-local scope.
+Array elements and indices evaluate left-to-right. Array constructors
+collect typed element registers after staging child expressions in local
+slots, preserving order across short-circuit control flow. Array reads
+carry an expected length, source register and `i32` index; local indexed
+writes carry a slot, `i32` index and value. The verifier checks the
+array type, arity, bounds metadata and register types before C17 output.
+`.len` evaluates its base expression and yields a `const.usize`
+of its static length. This milestone supports `usize` values and
+equality but not general `usize` arithmetic.
 Optional unwrapping, `match`, `try`, `defer`, and their control-flow
 lowerings remain future work. Boolean short-circuiting appears explicitly
 in the CFG. Traps must not become C undefined behavior.
@@ -102,6 +113,8 @@ Every backend receives a documented IR form and must preserve observable C^ sema
 Tests cover `return 42`, calls, recursion, arithmetic, branches, loops,
 short-circuit control flow, exclusive/inclusive range loops and edge
 values, compound assignment, bitwise/wrapping arithmetic,
+fixed-array constructors, copies, nested values, checked reads/writes
+and trap cases,
 tuple/optional propagation, the executable
 `divmod` tuple-return example, and intentionally corrupted IR. A stable
 external ABI for aggregates, `match`, cleanup, aliasing and full IR

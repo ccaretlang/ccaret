@@ -47,7 +47,9 @@
       `break`/`continue` and boundary-safe stepping.
 - [x] Checked `i32` compound arithmetic, bitwise expressions/updates and
       explicitly wrapping `i32` arithmetic (signed shifts remain pending).
-- [ ] Structs, fixed arrays, module imports and visibility.
+- [x] Fixed arrays, literals, by-value calling/returning, checked
+      `i32` indexing and mutable-local element updates.
+- [ ] Structs, module imports and visibility.
 - [ ] Raw pointers, `unsafe`, C ABI declarations and function pointers.
 - [ ] Slices, bounds checks and layout intrinsics.
 

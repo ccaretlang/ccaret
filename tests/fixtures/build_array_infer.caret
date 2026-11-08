@@ -1,0 +1,4 @@
+fn main() -> i32 {
+    let array = [20, 22,];
+    return array[0] + array[1];
+}

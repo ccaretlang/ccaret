@@ -44,6 +44,15 @@ entry point is `fn main() -> i32`.
 - Optional `?T` types, `some(value)` and `none` construction, optional
   parameters/returns, nested optionals and optionals inside tuples (and
   tuples inside optionals). `none` requires a contextual optional type.
+- Fixed arrays `[N]T` with `[x, y]` literals (including `[]` with a
+  type annotation), nested element types, by-value copies, parameters,
+  returns, indexed reads, single-level indexed writes to `var` locals,
+  and `arr.len`. The `usize` type supports array lengths, constants,
+  parameters/returns and equality (not general integer operations).
+  Array indices in this backend must currently be `i32`.
+  Negative or out-of-range indices call `abort()` instead of accessing
+  invalid memory. Indexed `i32` compound assignments use checked
+  arithmetic; values and indices are evaluated once.
 - Arguments are lowered left-to-right before the C function call, so the
   generated C's unspecified argument evaluation order has no effect.
   Tuple elements are similarly sequenced before construction.
@@ -52,7 +61,10 @@ Composite IR type IDs map to deterministic C17 `typedef struct` types
 (`cc_t_3`, `cc_t_4`, etc.) in dependency order. Tuple elements use
 `f0`, `f1`, ... fields; a zero-element tuple has a dummy byte because
 empty structs are not standard C17. Optionals use a `bool has` tag and a
-typed `value` payload. This is an **internal implementation layout**, not
+typed `value` payload. Arrays use a fixed `elements[N]` field, or a
+dummy byte for `N = 0`, because zero-length C arrays are not standard
+C17. Array lengths are limited to 65536 in this bootstrap backend.
+This is an **internal implementation layout**, not
 a stable language or foreign-function ABI.
 
 The C runtime helpers use `int64_t` arithmetic and checks before converting
@@ -70,11 +82,14 @@ wrapping/cast decisions remain open.
 
 ## Not yet supported by the backend
 
-Arrays, slices, pointers, floating-point values, user-defined types,
+Slices, pointers, floating-point values, user-defined types,
 signed shifts (`<<`, `>>`, `<<=`, `>>=`) and multi-width integer
 arithmetic have not yet been lowered. Signed right-shift semantics
 are still open in the language specification. Optional
 inspection/unwrapping and pattern matching are not yet implemented.
+Nested indexed assignment (`a[i][j] = x`), slice creation/indexing,
+arbitrary `usize` arithmetic and indexed targets other than a named
+mutable array local are not yet supported.
 Some unsupported constructs already parse and type-check, but fail
 explicitly at IR lowering rather than producing a misleading executable.
 
@@ -92,6 +107,8 @@ paths containing spaces, tuple returns/destructuring, `divmod`, nested
 aggregates, optional construction/propagation, both `for` range modes,
 boundaries and loop control flow, compound updates, and wrapping/bitwise
 arithmetic. These outputs are also compiled with strict C17 warnings at
-`-O2`. The IR unit suite
+`-O2`. Array tests exercise construction, copies, `.len`,
+array-of-array/tuple/optional values, reads/writes, bounds traps and
+noncanonical or corrupted IR. The IR unit suite
 deliberately mutates valid IR to test refusal of malformed instructions,
 types, constructors, projections and terminators.

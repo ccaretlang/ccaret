@@ -32,7 +32,9 @@ are arena-allocated; it does not yet annotate the AST with persistent
   (including unary negation), with no implicit narrowing between concrete
   numeric types.
 - Type-check arithmetic, comparisons, boolean and bitwise operations,
-  tuple creation and indexed access, basic array/slice indexing and `.len`.
+  tuple and fixed-array literal construction, indexed access, basic
+  array/slice indexing and `.len`; fixed-array literals enforce element
+  types, arity and contextual typing for `[]`.
   Check `?T` construction with `some(value)` and `none`.
 - Check tuple patterns (including nested destructuring), tuple arity,
   parameter/return types, `if`/`while` conditions, integer `for` ranges,
@@ -48,8 +50,9 @@ are arena-allocated; it does not yet annotate the AST with persistent
   built-ins listed above.
 - Pointer dereference/address-taking and other unsafe operations require a
   later safety-aware pass. The checker rejects those expressions explicitly.
-- Assignment targets are currently plain mutable local variables, not tuple
-  members or indexed storage.
+- Assignment targets are mutable local variables or single-level indexed
+  elements of a mutable fixed-array local. Nested indexed writes, tuple
+  members and slice writes remain unsupported.
 - Float type signatures and operations on float *variables* are recognized;
   floating-point literal expressions still await parser support.
 - Integer literals are checked for representable values (including the
