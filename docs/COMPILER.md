@@ -2,7 +2,13 @@
 
 ## Current state
 
-The repository has a C17 CLI, a source manager with UTF-8 validation and a lexer with a `ccaret tokens` dump command. It does not parse, type check, emit IR or compile `.caret` programs yet. The roadmap is separate from implementation status.
+The repository has a C17 CLI, UTF-8 source manager, lexer, arena-allocated
+AST and parser, and an initial semantic checker for built-in and composite
+types, lexical bindings, functions, tuples, expressions and returns. The
+`ccaret tokens` and `ccaret check` commands work. It does not yet emit
+typed IR, generate C, or compile `.caret` programs to executables. The
+semantic checker is a first subset, not a complete implementation of the
+language specification; see [SEMANTIC.md](SEMANTIC.md).
 
 ## Planned architecture
 
@@ -51,7 +57,8 @@ ccaret emit-c examples/hello.caret -o build/hello.c
 ccaret build examples/hello.caret -o hello
 ```
 
-Commands that do not exist yet should fail with a clear message, not pretend to work.
+`tokens` and `check` are implemented. Commands that do not exist yet
+should fail with a clear message, not pretend to work.
 
 ## C implementation conventions
 

@@ -27,7 +27,7 @@
 - [ ] AST allocated in an arena with source spans.
 - [ ] Pratt expression parser with tested precedence.
 - [ ] Name resolution, primitive type checking and definite assignment.
-- [ ] `ccaret check` command.
+- [x] `ccaret check` command (first semantic subset; see SEMANTIC.md).
 
 ## Phase 3: IR and executable pipeline
 

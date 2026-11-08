@@ -1,6 +1,7 @@
 # Type system (draft 0.1)
 
-> These are proposed rules. There is no type checker yet.
+> These are proposed rules. An initial semantic checker exists; see
+> [SEMANTIC.md](SEMANTIC.md) for the implemented subset and its limits.
 
 ## Core rules
 

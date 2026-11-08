@@ -1,4 +1,6 @@
 #include "lexer/lexer.h"
+#include "parser/parser.h"
+#include "semantic/semantic.h"
 #include "source/source.h"
 
 #include <stdbool.h>
@@ -15,6 +17,7 @@ static void print_help(void)
     puts("");
     puts("Commands:");
     puts("  tokens <file>  Print the token stream");
+    puts("  check <file>   Parse and type-check a C^ file");
     puts("  --help         Show this help");
     puts("  --version      Show compiler version");
 }
@@ -116,6 +119,69 @@ static int run_tokens(const char *path)
     return had_error ? 1 : 0;
 }
 
+static void print_diagnostic(const char *path, const CcSourceFile *file,
+                             CcSourceSpan span, const char *stage,
+                             const char *message)
+{
+    size_t line = 1;
+    size_t column = 1;
+
+    if (span.file_id != CC_FILE_ID_INVALID)
+        cc_source_location(file, span.start, &line, &column);
+
+    fprintf(stderr, "%s:%zu:%zu: error: %s: %s\n",
+            path, line, column, stage, message);
+}
+
+static int run_check(const char *path)
+{
+    CcSourceManager sources;
+    CcSourceError source_error = {0};
+    CcFileId file_id;
+
+    cc_source_manager_init(&sources);
+
+    if (!cc_source_add_file(&sources, path, &file_id, &source_error)) {
+        print_source_error(path, &source_error);
+        cc_source_manager_destroy(&sources);
+        return 1;
+    }
+
+    const CcSourceFile *file = cc_source_get(&sources, file_id);
+    CcLexer lexer;
+    CcArena arena;
+    CcParser parser;
+    int status = 0;
+
+    cc_lexer_init(&lexer, file, file_id);
+    cc_arena_init(&arena);
+    cc_parser_init(&parser, &lexer, &arena);
+    CcFunctionDeclaration *functions = cc_parser_parse_program(&parser);
+
+    if (parser.failed) {
+        if (parser.current.kind == CC_TOKEN_INVALID &&
+            lexer.error != CC_LEX_ERROR_NONE)
+            print_diagnostic(path, file, parser.current.span, "lexer",
+                             cc_lex_error_message(lexer.error));
+        else
+            print_diagnostic(path, file, parser.error_span, "parser",
+                             parser.error);
+        status = 1;
+    } else {
+        CcSemanticError semantic_error;
+
+        if (!cc_semantic_check(file, functions, &arena, &semantic_error)) {
+            print_diagnostic(path, file, semantic_error.span, "semantic",
+                             semantic_error.message);
+            status = 1;
+        }
+    }
+
+    cc_arena_destroy(&arena);
+    cc_source_manager_destroy(&sources);
+    return status;
+}
+
 int main(int argc, char **argv)
 {
     if (argc == 1 || (argc == 2 && strcmp(argv[1], "--help") == 0)) {
@@ -135,6 +201,15 @@ int main(int argc, char **argv)
         }
 
         return run_tokens(argv[2]);
+    }
+
+    if (argc >= 2 && strcmp(argv[1], "check") == 0) {
+        if (argc != 3) {
+            fprintf(stderr, "usage: ccaret check <file>\n");
+            return 1;
+        }
+
+        return run_check(argv[2]);
     }
 
     fprintf(stderr, "ccaret: unknown command: %s\n", argv[1]);

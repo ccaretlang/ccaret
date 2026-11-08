@@ -1,0 +1,302 @@
+#include "semantic/semantic.h"
+#include "parser/parser.h"
+
+#include <assert.h>
+#include <stdio.h>
+#include <string.h>
+
+typedef struct {
+    CcSourceManager sources;
+    CcFileId id;
+    CcArena arena;
+    CcLexer lexer;
+    CcParser parser;
+} Fixture;
+
+static void init(Fixture *fixture, const char *text)
+{
+    CcSourceError source_error;
+
+    cc_source_manager_init(&fixture->sources);
+    assert(cc_source_add_memory(&fixture->sources, "semantic test",
+                                (const unsigned char *)text, strlen(text),
+                                &fixture->id, &source_error));
+
+    const CcSourceFile *file = cc_source_get(&fixture->sources, fixture->id);
+
+    assert(file != NULL);
+    cc_arena_init(&fixture->arena);
+    cc_lexer_init(&fixture->lexer, file, fixture->id);
+    cc_parser_init(&fixture->parser, &fixture->lexer, &fixture->arena);
+}
+
+static void destroy(Fixture *fixture)
+{
+    cc_arena_destroy(&fixture->arena);
+    cc_source_manager_destroy(&fixture->sources);
+}
+
+static void valid(const char *source)
+{
+    Fixture fixture;
+
+    init(&fixture, source);
+    CcFunctionDeclaration *functions =
+        cc_parser_parse_program(&fixture.parser);
+
+    if (fixture.parser.failed)
+        fprintf(stderr, "unexpected parse error: %s\n", fixture.parser.error);
+    assert(!fixture.parser.failed);
+
+    CcSemanticError error;
+    const CcSourceFile *file = cc_source_get(&fixture.sources, fixture.id);
+    bool ok = cc_semantic_check(file, functions, &fixture.arena, &error);
+
+    if (!ok)
+        fprintf(stderr, "unexpected semantic error: %s at byte %u in %s\n",
+                error.message, error.span.start, source);
+    assert(ok);
+    assert(error.message == NULL);
+
+    destroy(&fixture);
+}
+
+static void invalid(const char *source, const char *message,
+                    const char *at)
+{
+    Fixture fixture;
+
+    init(&fixture, source);
+    CcFunctionDeclaration *functions =
+        cc_parser_parse_program(&fixture.parser);
+
+    if (fixture.parser.failed)
+        fprintf(stderr, "unexpected parse error: %s in %s\n",
+                fixture.parser.error, source);
+    assert(!fixture.parser.failed);
+
+    CcSemanticError error;
+    const CcSourceFile *file = cc_source_get(&fixture.sources, fixture.id);
+    bool ok = cc_semantic_check(file, functions, &fixture.arena, &error);
+
+    if (ok || error.message == NULL || strcmp(error.message, message) != 0)
+        fprintf(stderr, "unexpected result for %s: %s\n",
+                source, error.message == NULL ? "success" : error.message);
+    assert(!ok);
+    assert(error.message != NULL);
+    assert(strcmp(error.message, message) == 0);
+    assert(error.span.file_id == fixture.id);
+    assert(error.span.start <= error.span.end);
+    assert(error.span.end <= file->length);
+
+    if (at != NULL) {
+        size_t len = strlen(at);
+
+        assert(error.span.end - error.span.start == len);
+        assert(memcmp(file->bytes + error.span.start, at, len) == 0);
+    }
+
+    destroy(&fixture);
+}
+
+static void test_valid_programs(void)
+{
+    static const char *const programs[] = {
+        "",
+        "fn main() -> i32 { return 42; }",
+        "fn divmod(a: i32, b: i32) -> (i32, i32) {"
+        " return (a / b, a % b); }"
+        " fn main() -> i32 { let (q, r) = divmod(17, 5); return q + r; }",
+        "fn main() -> i32 { return twice(21); }"
+        " fn twice(x: i32) -> i32 { return x + x; }",
+        "fn present() -> ?i32 { return some(42); }"
+        " fn absent() -> ?i32 { return none; }",
+        "fn f() { let flag: bool = true;"
+        " if flag { let x: i32 = 2; }"
+        " else { var y: u8 = 3; y = 4; } }",
+        "fn f() { var n: i32 = 0; while n < 10 {"
+        " n += 1; if n == 5 { break; } else { continue; } } }",
+        "fn f() { for i in 0..10 { let x: i32 = i; } }",
+        "fn f(a: [2 + 3]u8) -> usize { return a.len; }",
+        "fn f(a: []const u8, i: usize) -> u8 { return a[i]; }",
+        "fn f(x: (i32, bool)) -> bool { return x.1; }",
+        "fn f(x: *const u8) -> *const u8 { return x; }",
+        "fn f(x: i8) -> i8 { return -128; }",
+        "fn f() -> (i32,) { let (x,): (i32,) = (1,); return (x,); }",
+        "fn f() -> bool { return (1 < 2) && true; }",
+        "fn f() { return; }",
+        "fn f() -> i32 { let x = 1;"
+        " if true { let x: bool = false; } return x; }",
+        "fn f(x: f32) -> f32 { return x; }",
+        "fn s() -> []const u8 { return \"hello\"; }"
+        " fn cs() -> *const u8 { return c\"hello\"; }",
+        "fn f() -> u8 { return 255; }",
+        "fn f() -> ?i32 { let x = some(1); return x; }",
+        "fn f() -> () { return (); }",
+        "fn f() -> ((i32, i32), ?bool) { return ((1, 2), none); }",
+        "fn f() -> i32 { if true { return 1; } else { return 2; } }",
+        "fn f() -> i32 { if true { return 1; }"
+        " else if false { return 2; } else { return 3; } }",
+        "fn f(x: i32) -> i32 { return x; }"
+        " fn g() -> i32 { return f(3); }",
+        "fn f() { var a: i32 = 1; a = 2; a *= 3; }",
+        "fn f(a: (i32, (bool, i32))) -> i32 {"
+        " let (x, (flag, y)) = a;"
+        " if flag { return x; } else { return y; } }",
+        "fn f() { let x: ?*const u8 = none; }",
+        "fn f(x: bool) -> bool { return !x; }",
+        "fn f(a: i32) -> bool { return a == 1; }",
+        "fn f() -> bool { return (1 + 2) == 3; }",
+        "fn f() { let x = (1, 2); let y: i32 = x.0; }",
+        "fn f() -> i32 { let x: i64 = 42; return 1; }",
+        "fn f(x: f32) -> f32 { var y: f32 = x; y += x; return y; }",
+        "fn f() -> i64 { return 2147483648; }",
+        "fn f() -> i32 { return 0xff; }",
+        "fn f(x: i32) -> i32 {"
+        " if x == 0 { return 0; } else { return f(x - 1); } }",
+        "fn f(a: (i32, i32)) -> i32 { return a.0 + a.1; }",
+        "fn f() { let () = (); }",
+        "fn f() -> ?*const u8 { return none; }"
+    };
+
+    for (size_t i = 0; i < sizeof(programs) / sizeof(programs[0]); i++)
+        valid(programs[i]);
+}
+
+static void test_invalid_programs(void)
+{
+    static const struct {
+        const char *source;
+        const char *message;
+        const char *at;
+    } cases[] = {
+        { "fn f() -> i32 { return missing; }", "undefined name",
+          "missing" },
+        { "fn f(x: Missing) {}", "unknown type", "Missing" },
+        { "fn f() {} fn f() {}", "duplicate function name", "f" },
+        { "fn f(x: i32, x: i32) {}", "duplicate parameter name", "x" },
+        { "fn f() { let a = 1; let a = 2; }",
+          "duplicate binding in scope", "a" },
+        { "fn f(x: i32) { let x = 1; }",
+          "duplicate binding in scope", "x" },
+        { "fn f() { let (a, a) = (1, 2); }",
+          "duplicate binding in scope", "a" },
+        { "fn f() { let x = x; }", "undefined name", "x" },
+        { "fn f() { if true { let x = 1; } let y = x; }",
+          "undefined name", "x" },
+        { "fn f() { if 1 { return; } }", "type mismatch", "1" },
+        { "fn f() -> i32 { return true; }", "type mismatch", "true" },
+        { "fn f() { return 1; }",
+          "void function cannot return a value", "1" },
+        { "fn f() -> i32 { return; }",
+          "return value required", NULL },
+        { "fn f() -> i32 {}", "not all control-flow paths return a value",
+          NULL },
+        { "fn f() -> i32 { if true { return 1; } }",
+          "not all control-flow paths return a value", NULL },
+        { "fn f() -> i32 { return g(); } fn g(x: i32) -> i32 {return x;}",
+          "wrong number of call arguments", "g()" },
+        { "fn f() -> i32 { return g(true); }"
+          " fn g(x: i32) -> i32 { return x; }",
+          "type mismatch", "true" },
+        { "fn f() -> i32 { return g(1); }",
+          "undefined function", "g" },
+        { "fn f() { let x: i32 = some(1); }",
+          "some requires an optional type", "some(1)" },
+        { "fn f() { let x = none; }",
+          "none requires an optional type context", "none" },
+        { "fn f() { let x = some(none); }",
+          "none requires an optional type context", "none" },
+        { "fn f() { let x: (i32, i32) = (1,); }",
+          "tuple arity mismatch", "(1,)" },
+        { "fn f() { let (a, b) = (1,); }",
+          "tuple destructuring arity mismatch", "(a, b)" },
+        { "fn f() { let (a, b) = 1; }",
+          "tuple pattern requires a tuple value", "(a, b)" },
+        { "fn f() { let x = 1; x = 2; }",
+          "cannot assign to immutable binding", "x" },
+        { "fn f() { let x: u8 = 256; }",
+          "integer literal out of range for target type", "256" },
+        { "fn f() { let x = 2147483648; }",
+          "integer literal does not fit i32", "2147483648" },
+        { "fn f() -> u8 { return -1; }",
+          "negative integer out of range", "-1" },
+        { "fn f() -> i8 { return -129; }",
+          "negative integer out of range", "-129" },
+        { "fn f() -> u64 { return 18446744073709551616; }",
+          "integer literal exceeds 64 bits", "18446744073709551616" },
+        { "fn f(p: *i32) -> i32 { return *p; }",
+          "raw pointer operations are not yet checked", "*p" },
+        { "fn f() { break; }", "break or continue outside a loop", "break;" },
+        { "fn f() { continue; }",
+          "break or continue outside a loop", "continue;" },
+        { "fn f(x: [n]i32) {}",
+          "array length must be a nonnegative constant integer", "n" },
+        { "fn f(x: [1 / 0]i32) {}",
+          "array length must be a nonnegative constant integer", "1 / 0" },
+        { "fn f(x: [1 - 2]i32) {}",
+          "array length must be a nonnegative constant integer", "1 - 2" },
+        { "fn f(a: []i32) -> i32 { return a[true]; }",
+          "index must be an integer", "true" },
+        { "fn f(x: (i32, i32)) -> i32 { return x.2; }",
+          "invalid tuple element index", "2" },
+        { "fn f(x: i32) -> usize { return x.len; }",
+          "unknown member", "len" },
+        { "fn f() { let x = some(1); var y = 2; x = y; }",
+          "cannot assign to immutable binding", "x" },
+        { "fn f() { var x: bool = true; x += 1; }",
+          "compound assignment requires a numeric variable", "x" },
+        { "fn f(a: [3]u8, b: [4]u8) { let x: [3]u8 = b; }",
+          "type mismatch", "b" },
+        { "fn f(a: *u8) { let b: *const u8 = a; }",
+          "type mismatch", "a" },
+        { "fn f(a: []u8) { let b: []const u8 = a; }",
+          "type mismatch", "a" },
+        { "fn f() { for i in 1 { return; } }",
+          "for expects an integer range", "1" },
+        { "fn f(x: void) {}", "parameter cannot have void type", "void" },
+        { "fn f() { let x: void = (); }",
+          "type mismatch: expected a tuple", "()" },
+        { "fn f() { let x = f; }",
+          "function values are not yet supported", "f" },
+        { "fn call() -> i32 { return 1; }"
+          " fn f() -> i32 { let call = 2; return call(); }",
+          "local variable cannot be called as a function", "call" },
+        { "fn f() { let a: bool = false; let x = a + 1; }",
+          "type mismatch", "1" },
+        { "fn f() { let x: i32 = 2; let y: bool = x; }",
+          "type mismatch", "x" },
+        { "fn f() -> bool { return 2147483648 == 1; }",
+          "integer literal does not fit i32", "2147483648 == 1" },
+        { "fn f(a: []i32) -> i32 { return a[2147483648]; }",
+          "integer literal does not fit i32", "2147483648" },
+        { "fn f(x: f64) { var y: f64 = x; y %= x; }",
+          "compound operator requires an integer variable", "y" }
+    };
+
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+        invalid(cases[i].source, cases[i].message, cases[i].at);
+}
+
+static void test_api_errors(void)
+{
+    CcArena arena;
+    CcSemanticError error;
+
+    cc_arena_init(&arena);
+    assert(!cc_semantic_check(NULL, NULL, &arena, &error));
+    assert(strcmp(error.message, "invalid semantic analyzer input") == 0);
+    assert(!cc_semantic_check(NULL, NULL, NULL, &error));
+    assert(!cc_semantic_check(NULL, NULL, &arena, NULL));
+    cc_arena_destroy(&arena);
+}
+
+int main(void)
+{
+    test_valid_programs();
+    test_invalid_programs();
+    test_api_errors();
+
+    puts("semantic: all tests passed");
+    return 0;
+}
