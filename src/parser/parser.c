@@ -422,6 +422,34 @@ static CcExpression *parse_postfix(CcParser *parser)
             continue;
         }
 
+        if (parser->current.kind == CC_TOKEN_LBRACKET) {
+            advance(parser);
+
+            CcExpression *index = parse_expression(parser);
+
+            if (parser->failed || index == NULL) return NULL;
+
+            CcToken rbracket;
+
+            if (!expect(parser, CC_TOKEN_RBRACKET,
+                        "expected `]` after index", &rbracket))
+                return NULL;
+
+            CcExpression *indexed = allocate(parser, sizeof(*indexed));
+
+            if (indexed == NULL) return NULL;
+
+            indexed->kind = CC_AST_EXPRESSION_INDEX;
+            indexed->span.file_id = expression->span.file_id;
+            indexed->span.start = expression->span.start;
+            indexed->span.end = rbracket.span.end;
+            indexed->index.operand = expression;
+            indexed->index.index = index;
+
+            expression = indexed;
+            continue;
+        }
+
         break;
     }
 

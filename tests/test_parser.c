@@ -655,6 +655,114 @@ static void test_member_call_member_chain(void)
     fixture_destroy(&fixture);
 }
 
+static void test_index_expression(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { a[0]; }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_EXPRESSION);
+    assert(statement->span.start == 9 && statement->span.end == 14);
+
+    CcExpression *expression = statement->expression;
+
+    assert(expression != NULL);
+    assert(expression->kind == CC_AST_EXPRESSION_INDEX);
+    assert(expression->span.start == 9 && expression->span.end == 13);
+    assert(expression->index.operand != NULL);
+    assert(expression->index.operand->kind == CC_AST_EXPRESSION_IDENTIFIER);
+    assert(expression->index.operand->span.start == 9);
+    assert(expression->index.operand->span.end == 10);
+    assert(expression->index.index != NULL);
+    assert(expression->index.index->kind ==
+           CC_AST_EXPRESSION_INTEGER_LITERAL);
+    assert(expression->index.index->integer_literal.value == 0);
+    assert(expression->index.index->span.start == 11);
+    assert(expression->index.index->span.end == 12);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_index_on_member_and_chained_index(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { p.q[1 + 1]; a[1][2]; }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *first = function->body->first;
+
+    assert(first != NULL);
+    assert(first->kind == CC_AST_STATEMENT_EXPRESSION);
+    assert(first->span.start == 9 && first->span.end == 20);
+
+    CcExpression *expression = first->expression;
+
+    assert(expression != NULL);
+    assert(expression->kind == CC_AST_EXPRESSION_INDEX);
+    assert(expression->span.start == 9 && expression->span.end == 19);
+
+    CcExpression *member = expression->index.operand;
+
+    assert(member != NULL);
+    assert(member->kind == CC_AST_EXPRESSION_MEMBER);
+    assert(member->span.start == 9 && member->span.end == 12);
+    assert(member->member.name.start == 11);
+    assert(member->member.name.end == 12);
+
+    CcExpression *index = expression->index.index;
+
+    assert(index != NULL);
+    assert(index->kind == CC_AST_EXPRESSION_BINARY);
+    assert(index->span.start == 13 && index->span.end == 18);
+    assert(index->binary.left != NULL);
+    assert(index->binary.left->kind == CC_AST_EXPRESSION_INTEGER_LITERAL);
+    assert(index->binary.left->span.start == 13);
+    assert(index->binary.left->span.end == 14);
+    assert(index->binary.right != NULL);
+    assert(index->binary.right->kind == CC_AST_EXPRESSION_INTEGER_LITERAL);
+    assert(index->binary.right->span.start == 17);
+    assert(index->binary.right->span.end == 18);
+
+    CcStatement *second = first->next;
+
+    assert(second != NULL);
+    assert(second->kind == CC_AST_STATEMENT_EXPRESSION);
+    assert(second->span.start == 21 && second->span.end == 29);
+
+    CcExpression *outer = second->expression;
+
+    assert(outer != NULL);
+    assert(outer->kind == CC_AST_EXPRESSION_INDEX);
+    assert(outer->span.start == 21 && outer->span.end == 28);
+    assert(outer->index.index != NULL);
+    assert(outer->index.index->kind == CC_AST_EXPRESSION_INTEGER_LITERAL);
+
+    CcExpression *inner = outer->index.operand;
+
+    assert(inner != NULL);
+    assert(inner->kind == CC_AST_EXPRESSION_INDEX);
+    assert(inner->span.start == 21 && inner->span.end == 25);
+    assert(inner->index.operand != NULL);
+    assert(inner->index.operand->kind == CC_AST_EXPRESSION_IDENTIFIER);
+    assert(inner->index.operand->span.start == 21);
+    assert(inner->index.operand->span.end == 22);
+
+    fixture_destroy(&fixture);
+}
+
 static void test_parse_errors(void)
 {
     static const char *const invalid[] = {
@@ -687,7 +795,10 @@ static void test_parse_errors(void)
         "fn f() { g(1, ); }",
         "fn f() { g(1 }",
         "fn f() { g(; }",
-        "fn f() { p.; }"
+        "fn f() { p.; }",
+        "fn f() { a[]; }",
+        "fn f() { a[1; }",
+        "fn f() { a[1..2]; }"
     };
 
     ParserFixture fixture;
@@ -739,6 +850,8 @@ int main(void)
     test_nested_call_expression();
     test_member_access_chain();
     test_member_call_member_chain();
+    test_index_expression();
+    test_index_on_member_and_chained_index();
     test_parse_errors();
     test_empty_source_without_functions();
 
