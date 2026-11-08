@@ -10,6 +10,7 @@ typedef struct CcCallArgument CcCallArgument;
 typedef struct CcExpression CcExpression;
 typedef struct CcStatement CcStatement;
 typedef struct CcBlock CcBlock;
+typedef struct CcIf CcIf;
 typedef struct CcFunctionDeclaration CcFunctionDeclaration;
 
 typedef enum {
@@ -32,7 +33,8 @@ typedef enum {
     CC_AST_STATEMENT_RETURN,
     CC_AST_STATEMENT_LET,
     CC_AST_STATEMENT_EXPRESSION,
-    CC_AST_STATEMENT_ASSIGNMENT
+    CC_AST_STATEMENT_ASSIGNMENT,
+    CC_AST_STATEMENT_IF
 } CcStatementKind;
 
 typedef enum {
@@ -157,12 +159,21 @@ struct CcStatement {
             CcExpression *target;
             CcExpression *value;
         } assignment;
+        CcIf *if_statement;
     };
 };
 
 struct CcBlock {
     CcSourceSpan span;
     CcStatement *first;
+};
+
+struct CcIf {
+    CcSourceSpan span;
+    CcExpression *condition;
+    CcBlock *then_block;
+    CcIf *else_if;         /* Selected by an `else if` chain. */
+    CcBlock *else_block;   /* Selected by a plain `else`. */
 };
 
 struct CcFunctionDeclaration {

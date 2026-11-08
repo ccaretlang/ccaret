@@ -658,6 +658,9 @@ static CcStatement *parse_let_statement(CcParser *parser)
     return statement;
 }
 
+static CcBlock *parse_block(CcParser *parser);
+static CcIf *parse_if(CcParser *parser);
+
 static CcBlock *parse_block(CcParser *parser)
 {
     CcToken lbrace;
@@ -696,6 +699,25 @@ static CcBlock *parse_block(CcParser *parser)
             CcStatement *statement = parse_let_statement(parser);
 
             if (parser->failed || statement == NULL) break;
+
+            *link = statement;
+            link = &statement->next;
+            continue;
+        }
+
+        if (parser->current.kind == CC_TOKEN_KW_IF) {
+            CcIf *if_statement = parse_if(parser);
+
+            if (parser->failed || if_statement == NULL) break;
+
+            CcStatement *statement = allocate(parser, sizeof(*statement));
+
+            if (statement == NULL) break;
+
+            statement->kind = CC_AST_STATEMENT_IF;
+            statement->span = if_statement->span;
+            statement->next = NULL;
+            statement->if_statement = if_statement;
 
             *link = statement;
             link = &statement->next;
@@ -763,6 +785,55 @@ static CcBlock *parse_block(CcParser *parser)
     block->first = first;
 
     return block;
+}
+
+static CcIf *parse_if(CcParser *parser)
+{
+    CcToken keyword = parser->current;
+
+    advance(parser);
+
+    CcExpression *condition = parse_expression(parser);
+
+    if (parser->failed || condition == NULL) return NULL;
+
+    CcBlock *then_block = parse_block(parser);
+
+    if (parser->failed || then_block == NULL) return NULL;
+
+    CcIf *if_statement = allocate(parser, sizeof(*if_statement));
+
+    if (if_statement == NULL) return NULL;
+
+    if_statement->span.file_id = keyword.span.file_id;
+    if_statement->span.start = keyword.span.start;
+    if_statement->span.end = then_block->span.end;
+    if_statement->condition = condition;
+    if_statement->then_block = then_block;
+    if_statement->else_if = NULL;
+    if_statement->else_block = NULL;
+
+    if (!accept(parser, CC_TOKEN_KW_ELSE, NULL)) return if_statement;
+
+    if (parser->current.kind == CC_TOKEN_KW_IF) {
+        CcIf *else_if = parse_if(parser);
+
+        if (parser->failed || else_if == NULL) return NULL;
+
+        if_statement->else_if = else_if;
+        if_statement->span.end = else_if->span.end;
+
+        return if_statement;
+    }
+
+    CcBlock *else_block = parse_block(parser);
+
+    if (parser->failed || else_block == NULL) return NULL;
+
+    if_statement->else_block = else_block;
+    if_statement->span.end = else_block->span.end;
+
+    return if_statement;
 }
 
 static CcFunctionDeclaration *parse_function(CcParser *parser)

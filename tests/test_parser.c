@@ -806,6 +806,136 @@ static void test_tuple_member_expressions(void)
     fixture_destroy(&fixture);
 }
 
+static void test_if_statement(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { if x { g(); } }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+    assert(function->body != NULL);
+    assert(function->body->span.start == 7 && function->body->span.end == 24);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_IF);
+    assert(statement->next == NULL);
+    assert(statement->span.start == 9 && statement->span.end == 22);
+
+    CcIf *if_statement = statement->if_statement;
+
+    assert(if_statement != NULL);
+    assert(if_statement->condition != NULL);
+    assert(if_statement->condition->kind == CC_AST_EXPRESSION_IDENTIFIER);
+    assert(if_statement->condition->span.start == 12);
+    assert(if_statement->condition->span.end == 13);
+    assert(if_statement->then_block != NULL);
+    assert(if_statement->then_block->span.start == 14);
+    assert(if_statement->then_block->span.end == 22);
+    assert(if_statement->then_block->first != NULL);
+    assert(if_statement->then_block->first->kind ==
+           CC_AST_STATEMENT_EXPRESSION);
+    assert(if_statement->then_block->first->span.start == 16);
+    assert(if_statement->then_block->first->span.end == 20);
+    assert(if_statement->else_if == NULL);
+    assert(if_statement->else_block == NULL);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_if_statement_with_else(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { if a { } else { } }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_IF);
+    assert(statement->span.start == 9 && statement->span.end == 26);
+
+    CcIf *if_statement = statement->if_statement;
+
+    assert(if_statement != NULL);
+    assert(if_statement->condition != NULL);
+    assert(if_statement->condition->span.start == 12);
+    assert(if_statement->condition->span.end == 13);
+    assert(if_statement->then_block != NULL);
+    assert(if_statement->then_block->span.start == 14);
+    assert(if_statement->then_block->span.end == 17);
+    assert(if_statement->then_block->first == NULL);
+    assert(if_statement->else_if == NULL);
+    assert(if_statement->else_block != NULL);
+    assert(if_statement->else_block->span.start == 23);
+    assert(if_statement->else_block->span.end == 26);
+    assert(if_statement->else_block->first == NULL);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_if_statement_else_if_chain(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture,
+                 "fn f() { if a {} else if b { return 1; } else {} }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_IF);
+    assert(statement->next == NULL);
+    assert(statement->span.start == 9 && statement->span.end == 48);
+
+    CcIf *outer = statement->if_statement;
+
+    assert(outer != NULL);
+    assert(outer->condition != NULL);
+    assert(outer->condition->span.start == 12);
+    assert(outer->condition->span.end == 13);
+    assert(outer->then_block != NULL);
+    assert(outer->then_block->span.start == 14);
+    assert(outer->then_block->span.end == 16);
+    assert(outer->then_block->first == NULL);
+    assert(outer->else_block == NULL);
+    assert(outer->else_if != NULL);
+
+    CcIf *inner = outer->else_if;
+
+    assert(inner->span.start == 22 && inner->span.end == 48);
+    assert(inner->condition != NULL);
+    assert(inner->condition->span.start == 25);
+    assert(inner->condition->span.end == 26);
+    assert(inner->then_block != NULL);
+    assert(inner->then_block->span.start == 27);
+    assert(inner->then_block->span.end == 40);
+    assert(inner->then_block->first != NULL);
+    assert(inner->then_block->first->kind == CC_AST_STATEMENT_RETURN);
+    assert(inner->then_block->first->span.start == 29);
+    assert(inner->then_block->first->span.end == 38);
+    assert(inner->else_if == NULL);
+    assert(inner->else_block != NULL);
+    assert(inner->else_block->span.start == 46);
+    assert(inner->else_block->span.end == 48);
+
+    fixture_destroy(&fixture);
+}
+
 static void test_parse_errors(void)
 {
     static const char *const invalid[] = {
@@ -842,7 +972,10 @@ static void test_parse_errors(void)
         "fn f() { a[]; }",
         "fn f() { a[1; }",
         "fn f() { a[1..2]; }",
-        "fn f() { p.-1; }"
+        "fn f() { p.-1; }",
+        "fn f() { if }",
+        "fn f() { if x }",
+        "fn f() { if x { } else }"
     };
 
     ParserFixture fixture;
@@ -897,6 +1030,9 @@ int main(void)
     test_index_expression();
     test_index_on_member_and_chained_index();
     test_tuple_member_expressions();
+    test_if_statement();
+    test_if_statement_with_else();
+    test_if_statement_else_if_chain();
     test_parse_errors();
     test_empty_source_without_functions();
 
