@@ -297,6 +297,19 @@ static CcExpression *parse_primary(CcParser *parser)
         return expression;
     }
 
+    if (parser->current.kind == CC_TOKEN_BYTE_LITERAL) {
+        CcToken token = parser->current;
+        CcExpression *expression = allocate(parser, sizeof(*expression));
+
+        if (expression == NULL) return NULL;
+
+        expression->kind = CC_AST_EXPRESSION_BYTE_LITERAL;
+        expression->span = token.span;
+
+        advance(parser);
+        return expression;
+    }
+
     if (parser->current.kind == CC_TOKEN_IDENTIFIER) {
         CcToken token = parser->current;
         CcExpression *expression = allocate(parser, sizeof(*expression));
