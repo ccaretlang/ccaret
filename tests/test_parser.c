@@ -763,6 +763,49 @@ static void test_index_on_member_and_chained_index(void)
     fixture_destroy(&fixture);
 }
 
+static void test_tuple_member_expressions(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { p.0.q; }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_EXPRESSION);
+    assert(statement->span.start == 9 && statement->span.end == 15);
+
+    CcExpression *member = statement->expression;
+
+    assert(member != NULL);
+    assert(member->kind == CC_AST_EXPRESSION_MEMBER);
+    assert(member->span.start == 9 && member->span.end == 14);
+    assert(member->member.name.start == 13);
+    assert(member->member.name.end == 14);
+
+    CcExpression *tuple = member->member.operand;
+
+    assert(tuple != NULL);
+    assert(tuple->kind == CC_AST_EXPRESSION_TUPLE_MEMBER);
+    assert(tuple->span.start == 9 && tuple->span.end == 12);
+    assert(tuple->tuple_member.operand != NULL);
+    assert(tuple->tuple_member.operand->kind ==
+           CC_AST_EXPRESSION_IDENTIFIER);
+    assert(tuple->tuple_member.operand->span.start == 9);
+    assert(tuple->tuple_member.operand->span.end == 10);
+    assert(tuple->tuple_member.index.start == 11);
+    assert(tuple->tuple_member.index.end == 12);
+    assert(tuple->tuple_member.index_value.value == 0);
+    assert(tuple->tuple_member.index_value.overflow == false);
+
+    fixture_destroy(&fixture);
+}
+
 static void test_parse_errors(void)
 {
     static const char *const invalid[] = {
@@ -798,7 +841,8 @@ static void test_parse_errors(void)
         "fn f() { p.; }",
         "fn f() { a[]; }",
         "fn f() { a[1; }",
-        "fn f() { a[1..2]; }"
+        "fn f() { a[1..2]; }",
+        "fn f() { p.-1; }"
     };
 
     ParserFixture fixture;
@@ -852,6 +896,7 @@ int main(void)
     test_member_call_member_chain();
     test_index_expression();
     test_index_on_member_and_chained_index();
+    test_tuple_member_expressions();
     test_parse_errors();
     test_empty_source_without_functions();
 

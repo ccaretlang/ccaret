@@ -401,25 +401,58 @@ static CcExpression *parse_postfix(CcParser *parser)
         if (parser->current.kind == CC_TOKEN_DOT) {
             advance(parser);
 
-            CcToken name;
+            if (parser->current.kind == CC_TOKEN_IDENTIFIER) {
+                CcToken name = parser->current;
 
-            if (!expect(parser, CC_TOKEN_IDENTIFIER,
-                        "expected member name", &name))
-                return NULL;
+                advance(parser);
 
-            CcExpression *member = allocate(parser, sizeof(*member));
+                CcExpression *member = allocate(parser, sizeof(*member));
 
-            if (member == NULL) return NULL;
+                if (member == NULL) return NULL;
 
-            member->kind = CC_AST_EXPRESSION_MEMBER;
-            member->span.file_id = expression->span.file_id;
-            member->span.start = expression->span.start;
-            member->span.end = name.span.end;
-            member->member.operand = expression;
-            member->member.name = name.span;
+                member->kind = CC_AST_EXPRESSION_MEMBER;
+                member->span.file_id = expression->span.file_id;
+                member->span.start = expression->span.start;
+                member->span.end = name.span.end;
+                member->member.operand = expression;
+                member->member.name = name.span;
 
-            expression = member;
-            continue;
+                expression = member;
+                continue;
+            }
+
+            if (parser->current.kind == CC_TOKEN_INTEGER_LITERAL) {
+                CcToken index_token = parser->current;
+                unsigned long long value = 0;
+                bool overflow = false;
+
+                if (!integer_value(parser, index_token, &value, &overflow)) {
+                    report_error(parser, "malformed integer literal");
+                    return NULL;
+                }
+
+                advance(parser);
+
+                CcExpression *tuple_member =
+                    allocate(parser, sizeof(*tuple_member));
+
+                if (tuple_member == NULL) return NULL;
+
+                tuple_member->kind = CC_AST_EXPRESSION_TUPLE_MEMBER;
+                tuple_member->span.file_id = expression->span.file_id;
+                tuple_member->span.start = expression->span.start;
+                tuple_member->span.end = index_token.span.end;
+                tuple_member->tuple_member.operand = expression;
+                tuple_member->tuple_member.index = index_token.span;
+                tuple_member->tuple_member.index_value.value = value;
+                tuple_member->tuple_member.index_value.overflow = overflow;
+
+                expression = tuple_member;
+                continue;
+            }
+
+            report_error(parser, "expected member name");
+            return NULL;
         }
 
         if (parser->current.kind == CC_TOKEN_LBRACKET) {

@@ -24,7 +24,8 @@ typedef enum {
     CC_AST_EXPRESSION_BINARY,
     CC_AST_EXPRESSION_CALL,
     CC_AST_EXPRESSION_MEMBER,
-    CC_AST_EXPRESSION_INDEX
+    CC_AST_EXPRESSION_INDEX,
+    CC_AST_EXPRESSION_TUPLE_MEMBER
 } CcExpressionKind;
 
 typedef enum {
@@ -130,6 +131,11 @@ struct CcExpression {
             CcExpression *operand;
             CcExpression *index;
         } index;
+        struct {
+            CcExpression *operand;
+            CcSourceSpan index;
+            CcIntegerLiteral index_value;
+        } tuple_member;
     };
 };
 
