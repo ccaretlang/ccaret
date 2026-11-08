@@ -1006,6 +1006,63 @@ static void test_while_statement_with_body(void)
     fixture_destroy(&fixture);
 }
 
+static void test_break_and_continue_statements(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { while x { break; } }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+    assert(function->body != NULL);
+    assert(function->body->span.start == 7 && function->body->span.end == 29);
+
+    CcStatement *while_statement = function->body->first;
+
+    assert(while_statement != NULL);
+    assert(while_statement->kind == CC_AST_STATEMENT_WHILE);
+    assert(while_statement->span.start == 9 && while_statement->span.end == 27);
+
+    CcStatement *break_statement = while_statement->while_statement->body->first;
+
+    assert(break_statement != NULL);
+    assert(break_statement->kind == CC_AST_STATEMENT_BREAK);
+    assert(break_statement->next == NULL);
+    assert(break_statement->span.start == 19 && break_statement->span.end == 25);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_continue_statement(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { while y { continue; } }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *while_statement = function->body->first;
+
+    assert(while_statement != NULL);
+    assert(while_statement->kind == CC_AST_STATEMENT_WHILE);
+
+    CcStatement *continue_statement =
+        while_statement->while_statement->body->first;
+
+    assert(continue_statement != NULL);
+    assert(continue_statement->kind == CC_AST_STATEMENT_CONTINUE);
+    assert(continue_statement->next == NULL);
+    assert(continue_statement->span.start == 19);
+    assert(continue_statement->span.end == 28);
+
+    fixture_destroy(&fixture);
+}
+
 static void test_parse_errors(void)
 {
     static const char *const invalid[] = {
@@ -1047,7 +1104,10 @@ static void test_parse_errors(void)
         "fn f() { if x }",
         "fn f() { if x { } else }",
         "fn f() { while }",
-        "fn f() { while x }"
+        "fn f() { while x }",
+        "fn f() { while x { break } }",
+        "fn f() { break 1; }",
+        "fn f() { continue }"
     };
 
     ParserFixture fixture;
@@ -1107,6 +1167,8 @@ int main(void)
     test_if_statement_else_if_chain();
     test_while_statement();
     test_while_statement_with_body();
+    test_break_and_continue_statements();
+    test_continue_statement();
     test_parse_errors();
     test_empty_source_without_functions();
 

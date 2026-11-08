@@ -661,6 +661,8 @@ static CcStatement *parse_let_statement(CcParser *parser)
 static CcBlock *parse_block(CcParser *parser);
 static CcIf *parse_if(CcParser *parser);
 static CcWhile *parse_while(CcParser *parser);
+static CcStatement *parse_loop_keyword_statement(CcParser *parser,
+                                                 CcStatementKind kind);
 
 static CcBlock *parse_block(CcParser *parser)
 {
@@ -738,6 +740,22 @@ static CcBlock *parse_block(CcParser *parser)
             statement->span = while_statement->span;
             statement->next = NULL;
             statement->while_statement = while_statement;
+
+            *link = statement;
+            link = &statement->next;
+            continue;
+        }
+
+        if (parser->current.kind == CC_TOKEN_KW_BREAK ||
+            parser->current.kind == CC_TOKEN_KW_CONTINUE) {
+            CcStatementKind kind = CC_AST_STATEMENT_BREAK;
+
+            if (parser->current.kind == CC_TOKEN_KW_CONTINUE)
+                kind = CC_AST_STATEMENT_CONTINUE;
+
+            CcStatement *statement = parse_loop_keyword_statement(parser, kind);
+
+            if (parser->failed || statement == NULL) break;
 
             *link = statement;
             link = &statement->next;
@@ -881,6 +899,31 @@ static CcWhile *parse_while(CcParser *parser)
     while_statement->body = body;
 
     return while_statement;
+}
+
+static CcStatement *parse_loop_keyword_statement(CcParser *parser,
+                                                 CcStatementKind kind)
+{
+    CcToken keyword = parser->current;
+
+    advance(parser);
+
+    CcToken semicolon;
+
+    if (!expect(parser, CC_TOKEN_SEMICOLON, "expected `;`", &semicolon))
+        return NULL;
+
+    CcStatement *statement = allocate(parser, sizeof(*statement));
+
+    if (statement == NULL) return NULL;
+
+    statement->kind = kind;
+    statement->span.file_id = keyword.span.file_id;
+    statement->span.start = keyword.span.start;
+    statement->span.end = semicolon.span.end;
+    statement->next = NULL;
+
+    return statement;
 }
 
 static CcFunctionDeclaration *parse_function(CcParser *parser)
