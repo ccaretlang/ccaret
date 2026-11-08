@@ -5,9 +5,11 @@ CPPFLAGS     := -Isrc
 TARGET 	     := build/ccaret
 TEST_TARGET  := build/test_source
 LEXER_TEST_TARGET  := build/test_lexer
+ARENA_TEST_TARGET  := build/test_arena
 SOURCES      := src/main.c src/source/source.c src/lexer/lexer.c
 TEST_SOURCES := tests/test_source.c src/source/source.c
 LEXER_TEST_SOURCES := tests/test_lexer.c src/lexer/lexer.c src/source/source.c
+ARENA_TEST_SOURCES := tests/test_arena.c src/ast/arena.c
 CLI_TEST     := tests/test_cli.sh
 
 
@@ -27,14 +29,20 @@ $(LEXER_TEST_TARGET): $(LEXER_TEST_SOURCES) src/source/source.h src/lexer/lexer.
 	mkdir -p build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LEXER_TEST_SOURCES) -o $(LEXER_TEST_TARGET)
 
-test: $(TEST_TARGET) $(LEXER_TEST_TARGET)
+$(ARENA_TEST_TARGET): $(ARENA_TEST_SOURCES) src/ast/arena.h
+	mkdir -p build
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(ARENA_TEST_SOURCES) -o $(ARENA_TEST_TARGET)
+
+test: $(TEST_TARGET) $(LEXER_TEST_TARGET) $(ARENA_TEST_TARGET)
 	./$(TEST_TARGET)
 	./$(LEXER_TEST_TARGET)
+	./$(ARENA_TEST_TARGET)
 
-check: $(TARGET) $(TEST_TARGET) $(LEXER_TEST_TARGET)
+check: $(TARGET) $(TEST_TARGET) $(LEXER_TEST_TARGET) $(ARENA_TEST_TARGET)
 	./$(TARGET) --version
 	./$(TEST_TARGET)
 	./$(LEXER_TEST_TARGET)
+	./$(ARENA_TEST_TARGET)
 	sh $(CLI_TEST)
 
 clean:
