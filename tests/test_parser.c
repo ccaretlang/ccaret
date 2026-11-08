@@ -1200,6 +1200,114 @@ static void test_inclusive_range_binds_loosely(void)
     fixture_destroy(&fixture);
 }
 
+static void test_for_statement(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { for i in 0..10 { continue; } }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_FOR);
+    assert(statement->span.file_id == fixture.id);
+    assert(statement->span.start == 9 && statement->span.end == 37);
+    assert(statement->next == NULL);
+
+    CcFor *for_statement = statement->for_statement;
+
+    assert(for_statement != NULL);
+    assert(for_statement->span.start == 9 && for_statement->span.end == 37);
+    assert(for_statement->name.start == 13 && for_statement->name.end == 14);
+    assert(for_statement->range != NULL);
+    assert(for_statement->range->kind == CC_AST_EXPRESSION_BINARY);
+    assert(for_statement->range->span.start == 18);
+    assert(for_statement->range->span.end == 23);
+    assert(for_statement->range->binary.operator == CC_AST_BINARY_OPERATOR_RANGE);
+    assert(for_statement->range->binary.left->integer_literal.value == 0);
+    assert(for_statement->range->binary.right->integer_literal.value == 10);
+    assert(for_statement->body != NULL);
+    assert(for_statement->body->span.start == 24);
+    assert(for_statement->body->span.end == 37);
+    assert(for_statement->body->first != NULL);
+    assert(for_statement->body->first->kind == CC_AST_STATEMENT_CONTINUE);
+    assert(for_statement->body->first->span.start == 26);
+    assert(for_statement->body->first->span.end == 35);
+    assert(for_statement->body->first->next == NULL);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_for_inclusive_range_precedence(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture,
+                 "fn f() { for index in 1 + 2..=limit { break; } return 0; }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_FOR);
+    assert(statement->span.start == 9 && statement->span.end == 46);
+
+    CcFor *for_statement = statement->for_statement;
+
+    assert(for_statement != NULL);
+    assert(for_statement->name.start == 13 && for_statement->name.end == 18);
+    assert(for_statement->range != NULL);
+    assert(for_statement->range->span.start == 22);
+    assert(for_statement->range->span.end == 35);
+    assert(for_statement->range->binary.operator ==
+           CC_AST_BINARY_OPERATOR_RANGE_INCLUSIVE);
+    assert(for_statement->range->binary.left->kind == CC_AST_EXPRESSION_BINARY);
+    assert(for_statement->range->binary.left->binary.operator ==
+           CC_AST_BINARY_OPERATOR_PLUS);
+    assert(for_statement->range->binary.right->kind ==
+           CC_AST_EXPRESSION_IDENTIFIER);
+    assert(for_statement->body != NULL);
+    assert(for_statement->body->span.start == 36);
+    assert(for_statement->body->span.end == 46);
+    assert(for_statement->body->first->kind == CC_AST_STATEMENT_BREAK);
+
+    CcStatement *next = statement->next;
+
+    assert(next != NULL);
+    assert(next->kind == CC_AST_STATEMENT_RETURN);
+    assert(next->span.start == 47 && next->span.end == 56);
+    assert(next->next == NULL);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_for_unterminated_body(void)
+{
+    static const char *source = "fn f() { for i in 0..10 {";
+    ParserFixture fixture;
+
+    fixture_init(&fixture, source);
+
+    assert(cc_parser_parse_program(&fixture.parser) == NULL);
+    assert(fixture.parser.failed);
+    assert(fixture.parser.error != NULL);
+    assert(strcmp(fixture.parser.error, "expected `}`") == 0);
+    assert(fixture.parser.error_span.file_id == fixture.id);
+    assert(fixture.parser.error_span.start == strlen(source));
+    assert(fixture.parser.error_span.end == strlen(source));
+
+    fixture_destroy(&fixture);
+}
+
 static void test_parse_errors(void)
 {
     static const char *const invalid[] = {
@@ -1246,6 +1354,11 @@ static void test_parse_errors(void)
         "fn f() { continue }",
         "fn f() { loop }",
         "fn f() { loop; }",
+        "fn f() { for {} }",
+        "fn f() { for i 0..10 {} }",
+        "fn f() { for i in {} }",
+        "fn f() { for i in 0..10 }",
+        "fn f() { for i in 0.. {} }",
         "fn f() { 0..1..2; }",
         "fn f() { 1..; }"
     };
@@ -1313,6 +1426,9 @@ int main(void)
     test_loop_statement_with_break();
     test_range_expression();
     test_inclusive_range_binds_loosely();
+    test_for_statement();
+    test_for_inclusive_range_precedence();
+    test_for_unterminated_body();
     test_parse_errors();
     test_empty_source_without_functions();
 

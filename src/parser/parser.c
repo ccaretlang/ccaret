@@ -676,6 +676,7 @@ static CcBlock *parse_block(CcParser *parser);
 static CcIf *parse_if(CcParser *parser);
 static CcWhile *parse_while(CcParser *parser);
 static CcLoop *parse_loop(CcParser *parser);
+static CcFor *parse_for(CcParser *parser);
 static CcStatement *parse_loop_keyword_statement(CcParser *parser,
                                                  CcStatementKind kind);
 
@@ -790,6 +791,25 @@ static CcBlock *parse_block(CcParser *parser)
             statement->span = loop_statement->span;
             statement->next = NULL;
             statement->loop_statement = loop_statement;
+
+            *link = statement;
+            link = &statement->next;
+            continue;
+        }
+
+        if (parser->current.kind == CC_TOKEN_KW_FOR) {
+            CcFor *for_statement = parse_for(parser);
+
+            if (parser->failed || for_statement == NULL) break;
+
+            CcStatement *statement = allocate(parser, sizeof(*statement));
+
+            if (statement == NULL) break;
+
+            statement->kind = CC_AST_STATEMENT_FOR;
+            statement->span = for_statement->span;
+            statement->next = NULL;
+            statement->for_statement = for_statement;
 
             *link = statement;
             link = &statement->next;
@@ -980,6 +1000,43 @@ static CcLoop *parse_loop(CcParser *parser)
     loop_statement->body = body;
 
     return loop_statement;
+}
+
+static CcFor *parse_for(CcParser *parser)
+{
+    CcToken keyword = parser->current;
+
+    advance(parser);
+
+    CcToken name;
+
+    if (!expect(parser, CC_TOKEN_IDENTIFIER, "expected loop variable", &name))
+        return NULL;
+
+    if (!expect(parser, CC_TOKEN_KW_IN, "expected `in` after loop variable",
+                NULL))
+        return NULL;
+
+    CcExpression *range = parse_expression(parser);
+
+    if (parser->failed || range == NULL) return NULL;
+
+    CcBlock *body = parse_block(parser);
+
+    if (parser->failed || body == NULL) return NULL;
+
+    CcFor *for_statement = allocate(parser, sizeof(*for_statement));
+
+    if (for_statement == NULL) return NULL;
+
+    for_statement->span.file_id = keyword.span.file_id;
+    for_statement->span.start = keyword.span.start;
+    for_statement->span.end = body->span.end;
+    for_statement->name = name.span;
+    for_statement->range = range;
+    for_statement->body = body;
+
+    return for_statement;
 }
 
 static CcFunctionDeclaration *parse_function(CcParser *parser)
