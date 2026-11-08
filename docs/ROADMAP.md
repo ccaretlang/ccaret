@@ -31,11 +31,11 @@
 
 ## Phase 3: IR and executable pipeline
 
-- [ ] Define typed IR and the verifier.
-- [ ] Lower simple functions, calls, literals, arithmetic and returns into IR.
-- [ ] C17 backend that reads the IR, not the AST directly.
-- [ ] GCC process invocation and diagnostic forwarding.
-- [ ] End-to-end test: compile `return 42`, run the binary, check exit status `42`.
+- [x] Define an initial typed IR and verifier (scalar subset).
+- [x] Lower simple functions, calls, literals, arithmetic and returns into IR.
+- [x] C17 backend that reads the verified IR, not the AST directly.
+- [x] GCC process invocation and diagnostic forwarding for hosted builds.
+- [x] End-to-end test: compile `return 42`, run the binary, check exit status `42`.
 
 ## Phase 4: Practical C-like systems language
 

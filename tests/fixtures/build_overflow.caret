@@ -1,0 +1,4 @@
+fn main() -> i32 {
+    let maximum: i32 = 2147483647;
+    return maximum + 1;
+}

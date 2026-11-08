@@ -1,0 +1,8 @@
+fn touch(x: i32) {
+    let y: i32 = x + 1;
+}
+
+fn main() -> i32 {
+    touch(5);
+    return 42;
+}

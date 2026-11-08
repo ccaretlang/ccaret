@@ -4,9 +4,14 @@
 
 The IR exists from the first working compiler. The AST must never emit final C code. The frontend describes source semantics and knows nothing about the backend.
 
-## Initial model
+## Implemented initial model
 
-The first version uses a typed, basic-block, non-SSA IR. Each function has typed parameters, local slots, temporaries, basic blocks and explicit terminators. SSA can be added later if measurements show it is worth the work.
+The first version now uses a typed, basic-block, non-SSA IR. Each function
+has typed parameters, local slots, temporaries, basic blocks and explicit
+terminators. The current lowering supports the scalar subset `i32`,
+`bool`, and `void`; other source types are intentionally rejected at
+IR lowering, even when the semantic analyzer accepts them. SSA can be
+added later if measurements show it is worthwhile.
 
 ```text
 function add(a: i32, b: i32) -> i32
@@ -15,7 +20,7 @@ block entry:
     ret %0
 ```
 
-A function that returns a tuple can build an aggregate in the IR. The C backend lowers it to a generated struct. A later backend can choose a calling convention that fits the target.
+Tuple aggregates and aggregate ABI lowering are planned, not implemented.
 
 ## Instruction families
 
@@ -41,10 +46,36 @@ A function that returns a tuple can build an aggregate in the IR. The C backend 
 5. Lower aggregates and ABI details as needed by the backend.
 6. Emit C17, invoke GCC and report diagnostics.
 
+## Current verifier contract
+
+The IR implementation is in `src/ir/`:
+
+- `cc_ir_lower` turns a semantically checked AST into a module of typed
+  functions, local slots, virtual registers and basic blocks.
+- `cc_ir_verify` independently rejects invalid function IDs, slot and
+  register declarations, use-before-definition, cross-block register uses,
+  incorrect instruction/result types, bad calls and missing or invalid
+  block terminators/targets.
+- `cc_ir_print` produces a deterministic text form for inspection and
+  testing; `ccaret emit-ir file.caret` prints it to stdout, with optional
+  `-o path`.
+
+Blocks are terminated by `ret`, `br`, `condbr`, or `trap`. A virtual
+register may only be used in its defining block. A source value that
+survives a change in control flow is explicitly stored in a slot and
+reloaded in the destination block. Boolean `&&` and `||` lower into
+conditional branches and short-circuit properly.
+
+This first verifier checks types and local block structure but does not yet
+prove memory safety, arbitrary dominance/liveness or target ABI layout.
+
 ## Backend contract
 
 Every backend receives a documented IR form and must preserve observable C^ semantics. No backend may reinterpret errors, memory or integer overflow. Backend choice must not affect source-level correctness.
 
 ## Tests and open questions
 
-Snapshot and verify the IR for `return 42`, function calls, arithmetic, tuples, conditions, `match` and cleanup. Decide whether a separate high-level typed IR is needed. Define non-SSA merge values, optimization policy, pointer aliasing and provenance, and where ABI lowering belongs.
+Tests now cover `return 42`, calls, recursion, arithmetic, branches,
+loops, short-circuit control flow, snapshots and intentionally corrupted
+IR. Tuple aggregates, `match`, cleanup, aliasing, ABI lowering, and
+full IR optimization remain future work.

@@ -9,8 +9,11 @@ ARENA_TEST_TARGET  := build/test_arena
 PARSER_TEST_TARGET := build/test_parser
 TUPLE_PARSER_TEST_TARGET := build/test_parser_tuples
 SEMANTIC_TEST_TARGET := build/test_semantic
+IR_TEST_TARGET := build/test_ir
 SOURCES      := src/main.c src/source/source.c src/lexer/lexer.c \
-	src/parser/parser.c src/ast/arena.c src/semantic/semantic.c
+	src/parser/parser.c src/ast/arena.c src/semantic/semantic.c \
+	src/ir/lower.c src/ir/verify.c src/ir/print.c \
+	src/backend/c/emitter.c
 TEST_SOURCES := tests/test_source.c src/source/source.c
 LEXER_TEST_SOURCES := tests/test_lexer.c src/lexer/lexer.c src/source/source.c
 ARENA_TEST_SOURCES := tests/test_arena.c src/ast/arena.c
@@ -20,7 +23,11 @@ TUPLE_PARSER_TEST_SOURCES := tests/test_parser_tuples.c src/parser/parser.c \
 	src/lexer/lexer.c src/ast/arena.c src/source/source.c
 SEMANTIC_TEST_SOURCES := tests/test_semantic.c src/semantic/semantic.c \
 	src/parser/parser.c src/lexer/lexer.c src/ast/arena.c src/source/source.c
+IR_TEST_SOURCES := tests/test_ir.c src/ir/lower.c src/ir/verify.c \
+	src/ir/print.c src/backend/c/emitter.c src/semantic/semantic.c \
+	src/parser/parser.c src/lexer/lexer.c src/ast/arena.c src/source/source.c
 CLI_TEST     := tests/test_cli.sh
+BUILD_TEST   := tests/test_build.sh
 
 
 .PHONY: all check test clean
@@ -28,7 +35,8 @@ CLI_TEST     := tests/test_cli.sh
 all: $(TARGET)
 
 $(TARGET): $(SOURCES) src/source/source.h src/lexer/lexer.h \
-	src/parser/parser.h src/ast/ast.h src/ast/arena.h src/semantic/semantic.h
+	src/parser/parser.h src/ast/ast.h src/ast/arena.h src/semantic/semantic.h \
+	src/ir/ir.h src/backend/c/emitter.h
 	mkdir -p build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(SOURCES) -o $(TARGET)
 
@@ -60,17 +68,25 @@ $(SEMANTIC_TEST_TARGET): $(SEMANTIC_TEST_SOURCES) src/source/source.h \
 	mkdir -p build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(SEMANTIC_TEST_SOURCES) -o $(SEMANTIC_TEST_TARGET)
 
+$(IR_TEST_TARGET): $(IR_TEST_SOURCES) src/ir/ir.h \
+	src/backend/c/emitter.h src/semantic/semantic.h src/ast/ast.h
+	mkdir -p build
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(IR_TEST_SOURCES) -o $(IR_TEST_TARGET)
+
 test: $(TEST_TARGET) $(LEXER_TEST_TARGET) $(ARENA_TEST_TARGET) \
-	$(PARSER_TEST_TARGET) $(TUPLE_PARSER_TEST_TARGET) $(SEMANTIC_TEST_TARGET)
+	$(PARSER_TEST_TARGET) $(TUPLE_PARSER_TEST_TARGET) $(SEMANTIC_TEST_TARGET) \
+	$(IR_TEST_TARGET)
 	./$(TEST_TARGET)
 	./$(LEXER_TEST_TARGET)
 	./$(ARENA_TEST_TARGET)
 	./$(PARSER_TEST_TARGET)
 	./$(TUPLE_PARSER_TEST_TARGET)
 	./$(SEMANTIC_TEST_TARGET)
+	./$(IR_TEST_TARGET)
 
 check: $(TARGET) $(TEST_TARGET) $(LEXER_TEST_TARGET) $(ARENA_TEST_TARGET) \
-	$(PARSER_TEST_TARGET) $(TUPLE_PARSER_TEST_TARGET) $(SEMANTIC_TEST_TARGET)
+	$(PARSER_TEST_TARGET) $(TUPLE_PARSER_TEST_TARGET) $(SEMANTIC_TEST_TARGET) \
+	$(IR_TEST_TARGET)
 	./$(TARGET) --version
 	./$(TEST_TARGET)
 	./$(LEXER_TEST_TARGET)
@@ -78,7 +94,9 @@ check: $(TARGET) $(TEST_TARGET) $(LEXER_TEST_TARGET) $(ARENA_TEST_TARGET) \
 	./$(PARSER_TEST_TARGET)
 	./$(TUPLE_PARSER_TEST_TARGET)
 	./$(SEMANTIC_TEST_TARGET)
+	./$(IR_TEST_TARGET)
 	sh $(CLI_TEST)
+	sh $(BUILD_TEST)
 
 clean:
 	rm -rf build

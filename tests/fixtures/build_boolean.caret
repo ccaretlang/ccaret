@@ -1,0 +1,11 @@
+fn choose(a: bool, b: bool) -> bool {
+    return a == (b || true);
+}
+
+fn main() -> i32 {
+    if choose(true, false) {
+        return 42;
+    } else {
+        return 1;
+    }
+}

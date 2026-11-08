@@ -3,12 +3,13 @@
 ## Current state
 
 The repository has a C17 CLI, UTF-8 source manager, lexer, arena-allocated
-AST and parser, and an initial semantic checker for built-in and composite
-types, lexical bindings, functions, tuples, expressions and returns. The
-`ccaret tokens` and `ccaret check` commands work. It does not yet emit
-typed IR, generate C, or compile `.caret` programs to executables. The
-semantic checker is a first subset, not a complete implementation of the
-language specification; see [SEMANTIC.md](SEMANTIC.md).
+AST and parser, initial semantic checker, typed non-SSA IR with verifier,
+and a C17 backend. The `ccaret tokens`, `check`, `emit-ir`, `emit-c`
+and `build` commands work for their documented subset. Source programs
+using only `i32`, `bool`, `void` and supported expressions/statements
+can now become GCC-compiled executables. The frontend supports additional
+syntax and types that are **not yet lowerable**. See
+[SEMANTIC.md](SEMANTIC.md) and [BACKEND_C.md](BACKEND_C.md).
 
 ## Planned architecture
 
@@ -57,8 +58,8 @@ ccaret emit-c examples/hello.caret -o build/hello.c
 ccaret build examples/hello.caret -o hello
 ```
 
-`tokens` and `check` are implemented. Commands that do not exist yet
-should fail with a clear message, not pretend to work.
+All five commands listed above are implemented, with the limitations
+in [BACKEND_C.md](BACKEND_C.md). Unsupported constructs fail explicitly.
 
 ## C implementation conventions
 

@@ -1,0 +1,8 @@
+fn main() -> i32 {
+    let value: i32 = twice(20);
+    return value + 2;
+}
+
+fn twice(x: i32) -> i32 {
+    return x * 2;
+}
