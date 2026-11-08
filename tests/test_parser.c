@@ -936,6 +936,76 @@ static void test_if_statement_else_if_chain(void)
     fixture_destroy(&fixture);
 }
 
+static void test_while_statement(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { while x { } }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+    assert(function->body != NULL);
+    assert(function->body->span.start == 7 && function->body->span.end == 22);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_WHILE);
+    assert(statement->next == NULL);
+    assert(statement->span.start == 9 && statement->span.end == 20);
+
+    CcWhile *while_statement = statement->while_statement;
+
+    assert(while_statement != NULL);
+    assert(while_statement->condition != NULL);
+    assert(while_statement->condition->kind == CC_AST_EXPRESSION_IDENTIFIER);
+    assert(while_statement->condition->span.start == 15);
+    assert(while_statement->condition->span.end == 16);
+    assert(while_statement->body != NULL);
+    assert(while_statement->body->span.start == 17);
+    assert(while_statement->body->span.end == 20);
+    assert(while_statement->body->first == NULL);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_while_statement_with_body(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { while a { b; } }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_WHILE);
+    assert(statement->span.start == 9 && statement->span.end == 23);
+
+    CcWhile *while_statement = statement->while_statement;
+
+    assert(while_statement != NULL);
+    assert(while_statement->condition != NULL);
+    assert(while_statement->condition->span.start == 15);
+    assert(while_statement->condition->span.end == 16);
+    assert(while_statement->body != NULL);
+    assert(while_statement->body->span.start == 17);
+    assert(while_statement->body->span.end == 23);
+    assert(while_statement->body->first != NULL);
+    assert(while_statement->body->first->kind ==
+           CC_AST_STATEMENT_EXPRESSION);
+    assert(while_statement->body->first->span.start == 19);
+    assert(while_statement->body->first->span.end == 21);
+
+    fixture_destroy(&fixture);
+}
+
 static void test_parse_errors(void)
 {
     static const char *const invalid[] = {
@@ -975,7 +1045,9 @@ static void test_parse_errors(void)
         "fn f() { p.-1; }",
         "fn f() { if }",
         "fn f() { if x }",
-        "fn f() { if x { } else }"
+        "fn f() { if x { } else }",
+        "fn f() { while }",
+        "fn f() { while x }"
     };
 
     ParserFixture fixture;
@@ -1033,6 +1105,8 @@ int main(void)
     test_if_statement();
     test_if_statement_with_else();
     test_if_statement_else_if_chain();
+    test_while_statement();
+    test_while_statement_with_body();
     test_parse_errors();
     test_empty_source_without_functions();
 

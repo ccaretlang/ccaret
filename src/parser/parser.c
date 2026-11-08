@@ -660,6 +660,7 @@ static CcStatement *parse_let_statement(CcParser *parser)
 
 static CcBlock *parse_block(CcParser *parser);
 static CcIf *parse_if(CcParser *parser);
+static CcWhile *parse_while(CcParser *parser);
 
 static CcBlock *parse_block(CcParser *parser)
 {
@@ -718,6 +719,25 @@ static CcBlock *parse_block(CcParser *parser)
             statement->span = if_statement->span;
             statement->next = NULL;
             statement->if_statement = if_statement;
+
+            *link = statement;
+            link = &statement->next;
+            continue;
+        }
+
+        if (parser->current.kind == CC_TOKEN_KW_WHILE) {
+            CcWhile *while_statement = parse_while(parser);
+
+            if (parser->failed || while_statement == NULL) break;
+
+            CcStatement *statement = allocate(parser, sizeof(*statement));
+
+            if (statement == NULL) break;
+
+            statement->kind = CC_AST_STATEMENT_WHILE;
+            statement->span = while_statement->span;
+            statement->next = NULL;
+            statement->while_statement = while_statement;
 
             *link = statement;
             link = &statement->next;
@@ -834,6 +854,33 @@ static CcIf *parse_if(CcParser *parser)
     if_statement->span.end = else_block->span.end;
 
     return if_statement;
+}
+
+static CcWhile *parse_while(CcParser *parser)
+{
+    CcToken keyword = parser->current;
+
+    advance(parser);
+
+    CcExpression *condition = parse_expression(parser);
+
+    if (parser->failed || condition == NULL) return NULL;
+
+    CcBlock *body = parse_block(parser);
+
+    if (parser->failed || body == NULL) return NULL;
+
+    CcWhile *while_statement = allocate(parser, sizeof(*while_statement));
+
+    if (while_statement == NULL) return NULL;
+
+    while_statement->span.file_id = keyword.span.file_id;
+    while_statement->span.start = keyword.span.start;
+    while_statement->span.end = body->span.end;
+    while_statement->condition = condition;
+    while_statement->body = body;
+
+    return while_statement;
 }
 
 static CcFunctionDeclaration *parse_function(CcParser *parser)

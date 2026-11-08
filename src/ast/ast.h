@@ -11,6 +11,7 @@ typedef struct CcExpression CcExpression;
 typedef struct CcStatement CcStatement;
 typedef struct CcBlock CcBlock;
 typedef struct CcIf CcIf;
+typedef struct CcWhile CcWhile;
 typedef struct CcFunctionDeclaration CcFunctionDeclaration;
 
 typedef enum {
@@ -34,7 +35,8 @@ typedef enum {
     CC_AST_STATEMENT_LET,
     CC_AST_STATEMENT_EXPRESSION,
     CC_AST_STATEMENT_ASSIGNMENT,
-    CC_AST_STATEMENT_IF
+    CC_AST_STATEMENT_IF,
+    CC_AST_STATEMENT_WHILE
 } CcStatementKind;
 
 typedef enum {
@@ -160,6 +162,7 @@ struct CcStatement {
             CcExpression *value;
         } assignment;
         CcIf *if_statement;
+        CcWhile *while_statement;
     };
 };
 
@@ -174,6 +177,12 @@ struct CcIf {
     CcBlock *then_block;
     CcIf *else_if;         /* Selected by an `else if` chain. */
     CcBlock *else_block;   /* Selected by a plain `else`. */
+};
+
+struct CcWhile {
+    CcSourceSpan span;
+    CcExpression *condition;
+    CcBlock *body;
 };
 
 struct CcFunctionDeclaration {
