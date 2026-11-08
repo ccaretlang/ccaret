@@ -763,6 +763,114 @@ static void test_none_missing_semicolon(void)
     fixture_destroy(&fixture);
 }
 
+static void test_some_expression(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { let x = some(1 + 2); return some(none); }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *first = function->body->first;
+
+    assert(first != NULL);
+    assert(first->kind == CC_AST_STATEMENT_LET);
+
+    CcExpression *some = first->let.initializer;
+
+    assert(some != NULL);
+    assert(some->kind == CC_AST_EXPRESSION_SOME);
+    assert(some->span.file_id == fixture.id);
+    assert(some->span.start == 17 && some->span.end == 28);
+    assert(some->some_value != NULL);
+    assert(some->some_value->kind == CC_AST_EXPRESSION_BINARY);
+    assert(some->some_value->binary.operator == CC_AST_BINARY_OPERATOR_PLUS);
+    assert(some->some_value->span.start == 22);
+    assert(some->some_value->span.end == 27);
+
+    CcStatement *second = first->next;
+
+    assert(second != NULL);
+    assert(second->kind == CC_AST_STATEMENT_RETURN);
+    assert(second->next == NULL);
+
+    some = second->return_expression;
+
+    assert(some != NULL);
+    assert(some->kind == CC_AST_EXPRESSION_SOME);
+    assert(some->span.start == 37 && some->span.end == 47);
+    assert(some->some_value != NULL);
+    assert(some->some_value->kind == CC_AST_EXPRESSION_NONE_LITERAL);
+    assert(some->some_value->span.start == 42);
+    assert(some->some_value->span.end == 46);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_nested_some_argument(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { use(some(some(1)), none); }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_EXPRESSION);
+    assert(statement->expression->kind == CC_AST_EXPRESSION_CALL);
+
+    CcCallArgument *first = statement->expression->call.arguments;
+
+    assert(first != NULL);
+    assert(first->value->kind == CC_AST_EXPRESSION_SOME);
+    assert(first->value->span.start == 13);
+    assert(first->value->span.end == 26);
+
+    CcExpression *inner = first->value->some_value;
+
+    assert(inner != NULL);
+    assert(inner->kind == CC_AST_EXPRESSION_SOME);
+    assert(inner->span.start == 18 && inner->span.end == 25);
+    assert(inner->some_value != NULL);
+    assert(inner->some_value->kind == CC_AST_EXPRESSION_INTEGER_LITERAL);
+    assert(inner->some_value->integer_literal.value == 1);
+
+    CcCallArgument *second = first->next;
+
+    assert(second != NULL);
+    assert(second->value->kind == CC_AST_EXPRESSION_NONE_LITERAL);
+    assert(second->value->span.start == 28 && second->value->span.end == 32);
+    assert(second->next == NULL);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_some_missing_closing_parenthesis(void)
+{
+    static const char *source = "fn f() { return some(1 + 2";
+    ParserFixture fixture;
+
+    fixture_init(&fixture, source);
+
+    assert(cc_parser_parse_program(&fixture.parser) == NULL);
+    assert(fixture.parser.failed);
+    assert(fixture.parser.error != NULL);
+    assert(strcmp(fixture.parser.error, "expected `)` after `some` value") == 0);
+    assert(fixture.parser.error_span.file_id == fixture.id);
+    assert(fixture.parser.error_span.start == strlen(source));
+    assert(fixture.parser.error_span.end == strlen(source));
+
+    fixture_destroy(&fixture);
+}
+
 static void test_integer_overflow_is_recorded(void)
 {
     ParserFixture fixture;
@@ -1850,6 +1958,11 @@ static void test_parse_errors(void)
         "fn f() { none none; }",
         "fn f() { return none true; }",
         "fn f() { return none +; }",
+        "fn f() { return some; }",
+        "fn f() { return some(); }",
+        "fn f() { return some(1, 2); }",
+        "fn f() { return some(1,); }",
+        "fn f() { return some 1; }",
         "fn f() { let x; }",
         "fn f() { let 3 = 1; }",
         "fn f() { let x = ; }",
@@ -1944,6 +2057,9 @@ int main(void)
     test_none_literal();
     test_none_call_argument();
     test_none_missing_semicolon();
+    test_some_expression();
+    test_nested_some_argument();
+    test_some_missing_closing_parenthesis();
     test_let_statement_with_type();
     test_var_statement_inferred();
     test_expression_statements();

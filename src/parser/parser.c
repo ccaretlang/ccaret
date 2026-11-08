@@ -323,6 +323,38 @@ static CcExpression *parse_primary(CcParser *parser)
         return expression;
     }
 
+    if (parser->current.kind == CC_TOKEN_KW_SOME) {
+        CcToken keyword = parser->current;
+
+        advance(parser);
+
+        if (!expect(parser, CC_TOKEN_LPAREN, "expected `(` after `some`",
+                    NULL))
+            return NULL;
+
+        CcExpression *value = parse_expression(parser);
+
+        if (parser->failed || value == NULL) return NULL;
+
+        CcToken rparen;
+
+        if (!expect(parser, CC_TOKEN_RPAREN, "expected `)` after `some` value",
+                    &rparen))
+            return NULL;
+
+        CcExpression *expression = allocate(parser, sizeof(*expression));
+
+        if (expression == NULL) return NULL;
+
+        expression->kind = CC_AST_EXPRESSION_SOME;
+        expression->span.file_id = keyword.span.file_id;
+        expression->span.start = keyword.span.start;
+        expression->span.end = rparen.span.end;
+        expression->some_value = value;
+
+        return expression;
+    }
+
     if (parser->current.kind == CC_TOKEN_IDENTIFIER) {
         CcToken token = parser->current;
         CcExpression *expression = allocate(parser, sizeof(*expression));

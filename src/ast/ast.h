@@ -27,6 +27,7 @@ typedef enum {
     CC_AST_EXPRESSION_C_STRING_LITERAL,
     CC_AST_EXPRESSION_BYTE_LITERAL,
     CC_AST_EXPRESSION_NONE_LITERAL,
+    CC_AST_EXPRESSION_SOME,
     CC_AST_EXPRESSION_IDENTIFIER,
     CC_AST_EXPRESSION_PARENTHESIZED,
     CC_AST_EXPRESSION_UNARY,
@@ -126,6 +127,7 @@ struct CcExpression {
     union {
         CcIntegerLiteral integer_literal;
         bool boolean_literal;
+        CcExpression *some_value;
         CcSourceSpan identifier_name;
         CcExpression *parenthesized_inner;
         struct {
