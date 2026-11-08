@@ -176,6 +176,85 @@ static void test_multiple_functions(void)
     fixture_destroy(&fixture);
 }
 
+static void test_binary_precedence(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture,
+                 "fn main() -> i32 { return 1 + 2 * 3; }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcExpression *expression = function->body->first->return_expression;
+
+    assert(expression != NULL);
+    assert(expression->kind == CC_AST_EXPRESSION_BINARY);
+    assert(expression->binary.operator == CC_AST_BINARY_OPERATOR_PLUS);
+    assert(expression->binary.left->kind ==
+           CC_AST_EXPRESSION_INTEGER_LITERAL);
+    assert(expression->binary.right->kind == CC_AST_EXPRESSION_BINARY);
+    assert(expression->binary.right->binary.operator ==
+           CC_AST_BINARY_OPERATOR_STAR);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_parenthesized_expression(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture,
+                 "fn main() -> i32 { return (1 + 2) * 3; }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcExpression *expression = function->body->first->return_expression;
+
+    assert(expression != NULL);
+    assert(expression->kind == CC_AST_EXPRESSION_BINARY);
+    assert(expression->binary.operator == CC_AST_BINARY_OPERATOR_STAR);
+    assert(expression->binary.left->kind ==
+           CC_AST_EXPRESSION_PARENTHESIZED);
+    assert(expression->binary.left->parenthesized_inner != NULL);
+    assert(expression->binary.left->parenthesized_inner->kind ==
+           CC_AST_EXPRESSION_BINARY);
+    assert(expression->binary.left->parenthesized_inner->binary.operator ==
+           CC_AST_BINARY_OPERATOR_PLUS);
+    assert(expression->binary.right->kind ==
+           CC_AST_EXPRESSION_INTEGER_LITERAL);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_unary_operators(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { return -1; }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcExpression *expression = function->body->first->return_expression;
+
+    assert(expression != NULL);
+    assert(expression->kind == CC_AST_EXPRESSION_UNARY);
+    assert(expression->unary.operator == CC_AST_UNARY_OPERATOR_MINUS);
+    assert(expression->unary.operand->kind ==
+           CC_AST_EXPRESSION_INTEGER_LITERAL);
+    assert(expression->unary.operand->integer_literal.value == 1);
+
+    fixture_destroy(&fixture);
+}
+
 static void test_integer_overflow_is_recorded(void)
 {
     ParserFixture fixture;
@@ -208,7 +287,12 @@ static void test_parse_errors(void)
         "fn main() { return; ",
         "fn main() { blabla }",
         "fn main() { 42; }",
-        "fn 42() {}"
+        "fn 42() {}",
+        "fn main() { return -; }",
+        "fn main() { return a + ; }",
+        "fn main() { return (1; }",
+        "fn main() { return a + b c; }",
+        "fn main() { return a b; }"
     };
 
     ParserFixture fixture;
@@ -247,6 +331,9 @@ int main(void)
     test_parameters_and_identifier();
     test_multiple_functions();
     test_integer_overflow_is_recorded();
+    test_binary_precedence();
+    test_parenthesized_expression();
+    test_unary_operators();
     test_parse_errors();
     test_empty_source_without_functions();
 

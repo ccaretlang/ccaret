@@ -3,6 +3,77 @@
 #include <limits.h>
 #include <stddef.h>
 
+enum {
+    PREC_NONE = 0,
+    PREC_OR_OR,
+    PREC_AND_AND,
+    PREC_PIPE,
+    PREC_CARET,
+    PREC_AMP,
+    PREC_EQUALITY,
+    PREC_COMPARISON,
+    PREC_SHIFT,
+    PREC_ADDITIVE,
+    PREC_MULTIPLICATIVE
+};
+
+static CcExpression *parse_expression(CcParser *parser);
+
+typedef struct {
+    CcTokenKind token_kind;
+    CcBinaryOperator operator;
+    int precedence;
+} CcBinaryOperatorInfo;
+
+typedef struct {
+    CcTokenKind token_kind;
+    CcUnaryOperator operator;
+} CcUnaryOperatorInfo;
+
+static const CcBinaryOperatorInfo binary_operators[] = {
+    { CC_TOKEN_OR_OR, CC_AST_BINARY_OPERATOR_OR_OR, PREC_OR_OR },
+    { CC_TOKEN_AND_AND, CC_AST_BINARY_OPERATOR_AND_AND, PREC_AND_AND },
+    { CC_TOKEN_PIPE, CC_AST_BINARY_OPERATOR_PIPE, PREC_PIPE },
+    { CC_TOKEN_CARET, CC_AST_BINARY_OPERATOR_CARET, PREC_CARET },
+    { CC_TOKEN_AMP, CC_AST_BINARY_OPERATOR_AMP, PREC_AMP },
+    { CC_TOKEN_EQ, CC_AST_BINARY_OPERATOR_EQ, PREC_EQUALITY },
+    { CC_TOKEN_NE, CC_AST_BINARY_OPERATOR_NE, PREC_EQUALITY },
+    { CC_TOKEN_LT, CC_AST_BINARY_OPERATOR_LT, PREC_COMPARISON },
+    { CC_TOKEN_LE, CC_AST_BINARY_OPERATOR_LE, PREC_COMPARISON },
+    { CC_TOKEN_GT, CC_AST_BINARY_OPERATOR_GT, PREC_COMPARISON },
+    { CC_TOKEN_GE, CC_AST_BINARY_OPERATOR_GE, PREC_COMPARISON },
+    { CC_TOKEN_SHIFT_LEFT, CC_AST_BINARY_OPERATOR_SHIFT_LEFT, PREC_SHIFT },
+    { CC_TOKEN_SHIFT_RIGHT, CC_AST_BINARY_OPERATOR_SHIFT_RIGHT, PREC_SHIFT },
+    { CC_TOKEN_PLUS, CC_AST_BINARY_OPERATOR_PLUS, PREC_ADDITIVE },
+    { CC_TOKEN_MINUS, CC_AST_BINARY_OPERATOR_MINUS, PREC_ADDITIVE },
+    { CC_TOKEN_PLUS_PERCENT,
+      CC_AST_BINARY_OPERATOR_PLUS_PERCENT,
+      PREC_ADDITIVE },
+    { CC_TOKEN_MINUS_PERCENT,
+      CC_AST_BINARY_OPERATOR_MINUS_PERCENT,
+      PREC_ADDITIVE },
+    { CC_TOKEN_STAR,
+      CC_AST_BINARY_OPERATOR_STAR,
+      PREC_MULTIPLICATIVE },
+    { CC_TOKEN_SLASH,
+      CC_AST_BINARY_OPERATOR_SLASH,
+      PREC_MULTIPLICATIVE },
+    { CC_TOKEN_PERCENT,
+      CC_AST_BINARY_OPERATOR_PERCENT,
+      PREC_MULTIPLICATIVE },
+    { CC_TOKEN_STAR_PERCENT,
+      CC_AST_BINARY_OPERATOR_STAR_PERCENT,
+      PREC_MULTIPLICATIVE }
+};
+
+static const CcUnaryOperatorInfo unary_operators[] = {
+    { CC_TOKEN_NOT, CC_AST_UNARY_OPERATOR_NOT },
+    { CC_TOKEN_TILDE, CC_AST_UNARY_OPERATOR_TILDE },
+    { CC_TOKEN_MINUS, CC_AST_UNARY_OPERATOR_MINUS },
+    { CC_TOKEN_AMP, CC_AST_UNARY_OPERATOR_AMP },
+    { CC_TOKEN_STAR, CC_AST_UNARY_OPERATOR_STAR }
+};
+
 static void report_error(CcParser *parser, const char *message)
 {
     if (parser->failed || parser->error != NULL) return;
@@ -51,6 +122,28 @@ static void *allocate(CcParser *parser, size_t size)
     if (memory == NULL) report_oom(parser);
 
     return memory;
+}
+
+static const CcBinaryOperatorInfo *binary_operator_info(CcTokenKind kind)
+{
+    for (size_t i = 0; i < sizeof(binary_operators) / sizeof(binary_operators[0]);
+         i++) {
+        if (binary_operators[i].token_kind == kind)
+            return &binary_operators[i];
+    }
+
+    return NULL;
+}
+
+static const CcUnaryOperatorInfo *unary_operator_info(CcTokenKind kind)
+{
+    for (size_t i = 0; i < sizeof(unary_operators) / sizeof(unary_operators[0]);
+         i++) {
+        if (unary_operators[i].token_kind == kind)
+            return &unary_operators[i];
+    }
+
+    return NULL;
 }
 
 static bool integer_value(const CcParser *parser, CcToken token,
@@ -110,11 +203,10 @@ static bool integer_value(const CcParser *parser, CcToken token,
     return true;
 }
 
-static CcExpression *parse_expression(CcParser *parser)
+static CcExpression *parse_primary(CcParser *parser)
 {
-    CcToken token = parser->current;
-
-    if (token.kind == CC_TOKEN_INTEGER_LITERAL) {
+    if (parser->current.kind == CC_TOKEN_INTEGER_LITERAL) {
+        CcToken token = parser->current;
         unsigned long long value = 0;
         bool overflow = false;
 
@@ -136,7 +228,8 @@ static CcExpression *parse_expression(CcParser *parser)
         return expression;
     }
 
-    if (token.kind == CC_TOKEN_IDENTIFIER) {
+    if (parser->current.kind == CC_TOKEN_IDENTIFIER) {
+        CcToken token = parser->current;
         CcExpression *expression = allocate(parser, sizeof(*expression));
 
         if (expression == NULL) return NULL;
@@ -149,8 +242,113 @@ static CcExpression *parse_expression(CcParser *parser)
         return expression;
     }
 
+    if (parser->current.kind == CC_TOKEN_LPAREN) {
+        CcToken lparen = parser->current;
+
+        advance(parser);
+
+        CcExpression *inner = parse_expression(parser);
+
+        if (parser->failed || inner == NULL) return NULL;
+
+        CcToken rparen;
+
+        if (!expect(parser, CC_TOKEN_RPAREN, "expected `)` after expression",
+                    &rparen))
+            return NULL;
+
+        CcExpression *outer = allocate(parser, sizeof(*outer));
+
+        if (outer == NULL) return NULL;
+
+        outer->kind = CC_AST_EXPRESSION_PARENTHESIZED;
+        outer->span.file_id = lparen.span.file_id;
+        outer->span.start = lparen.span.start;
+        outer->span.end = rparen.span.end;
+        outer->parenthesized_inner = inner;
+
+        return outer;
+    }
+
     report_error(parser, "expected expression");
     return NULL;
+}
+
+/*
+ * Expressions are right-associative for unary operators and left-associative
+ * for the binary operators, per docs/GRAMMAR.md. Ranges and casts are still
+ * open and are not part of the grammar yet.
+ */
+static CcExpression *parse_unary(CcParser *parser)
+{
+    const CcUnaryOperatorInfo *info =
+        unary_operator_info(parser->current.kind);
+
+    if (info != NULL) {
+        CcToken operator = parser->current;
+
+        advance(parser);
+
+        CcExpression *operand = parse_unary(parser);
+
+        if (parser->failed || operand == NULL) return NULL;
+
+        CcExpression *outer = allocate(parser, sizeof(*outer));
+
+        if (outer == NULL) return NULL;
+
+        outer->kind = CC_AST_EXPRESSION_UNARY;
+        outer->span.file_id = operator.span.file_id;
+        outer->span.start = operator.span.start;
+        outer->span.end = operand->span.end;
+        outer->unary.operand = operand;
+        outer->unary.operator = info->operator;
+
+        return outer;
+    }
+
+    return parse_primary(parser);
+}
+
+static CcExpression *parse_binary(CcParser *parser, int min_precedence)
+{
+    CcExpression *left = parse_unary(parser);
+
+    if (parser->failed || left == NULL) return NULL;
+
+    for (;;) {
+        const CcBinaryOperatorInfo *info =
+            binary_operator_info(parser->current.kind);
+
+        if (info == NULL || info->precedence < min_precedence) break;
+
+        advance(parser);
+
+        CcExpression *right = parse_binary(parser, info->precedence + 1);
+
+        if (parser->failed || right == NULL) return NULL;
+
+        CcExpression *outer = allocate(parser, sizeof(*outer));
+
+        if (outer == NULL) return NULL;
+
+        outer->kind = CC_AST_EXPRESSION_BINARY;
+        outer->span.file_id = left->span.file_id;
+        outer->span.start = left->span.start;
+        outer->span.end = right->span.end;
+        outer->binary.left = left;
+        outer->binary.right = right;
+        outer->binary.operator = info->operator;
+
+        left = outer;
+    }
+
+    return left;
+}
+
+static CcExpression *parse_expression(CcParser *parser)
+{
+    return parse_binary(parser, PREC_NONE);
 }
 
 static CcType *parse_type(CcParser *parser)
