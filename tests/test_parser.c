@@ -499,6 +499,94 @@ static void test_unterminated_string_literal(void)
     fixture_destroy(&fixture);
 }
 
+static void test_c_string_literal(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { let s = c\"a\\n\"; return s; }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *first = function->body->first;
+
+    assert(first != NULL);
+    assert(first->kind == CC_AST_STATEMENT_LET);
+    assert(first->let.initializer != NULL);
+    assert(first->let.initializer->kind == CC_AST_EXPRESSION_C_STRING_LITERAL);
+    assert(first->let.initializer->span.file_id == fixture.id);
+    assert(first->let.initializer->span.start == 17);
+    assert(first->let.initializer->span.end == 23);
+
+    CcStatement *second = first->next;
+
+    assert(second != NULL);
+    assert(second->kind == CC_AST_STATEMENT_RETURN);
+    assert(second->return_expression->kind == CC_AST_EXPRESSION_IDENTIFIER);
+    assert(second->next == NULL);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_c_string_call_arguments(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { log(c\"ok\", \"\", c\"\"); }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_EXPRESSION);
+    assert(statement->expression->kind == CC_AST_EXPRESSION_CALL);
+
+    CcCallArgument *first = statement->expression->call.arguments;
+
+    assert(first != NULL);
+    assert(first->value->kind == CC_AST_EXPRESSION_C_STRING_LITERAL);
+    assert(first->value->span.start == 13 && first->value->span.end == 18);
+
+    CcCallArgument *second = first->next;
+
+    assert(second != NULL);
+    assert(second->value->kind == CC_AST_EXPRESSION_STRING_LITERAL);
+    assert(second->value->span.start == 20 && second->value->span.end == 22);
+
+    CcCallArgument *third = second->next;
+
+    assert(third != NULL);
+    assert(third->value->kind == CC_AST_EXPRESSION_C_STRING_LITERAL);
+    assert(third->value->span.start == 24 && third->value->span.end == 27);
+    assert(third->next == NULL);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_unterminated_c_string_literal(void)
+{
+    static const char *source = "fn f() { return c\"unterminated";
+    ParserFixture fixture;
+
+    fixture_init(&fixture, source);
+
+    assert(cc_parser_parse_program(&fixture.parser) == NULL);
+    assert(fixture.parser.failed);
+    assert(fixture.parser.error != NULL);
+    assert(fixture.lexer.error == CC_LEX_ERROR_UNTERMINATED_STRING);
+    assert(fixture.parser.error_span.file_id == fixture.id);
+    assert(fixture.parser.error_span.start == 16);
+    assert(fixture.parser.error_span.end == strlen(source));
+
+    fixture_destroy(&fixture);
+}
+
 static void test_integer_overflow_is_recorded(void)
 {
     ParserFixture fixture;
@@ -1575,6 +1663,9 @@ static void test_parse_errors(void)
         "fn f() { return !; }",
         "fn f() { \"a\" \"b\"; }",
         "fn f() { return \"bad\\q\"; }",
+        "fn f() { c\"a\" c\"b\"; }",
+        "fn f() { return c\"bad\\q\"; }",
+        "fn f() { return c \"ok\"; }",
         "fn f() { let x; }",
         "fn f() { let 3 = 1; }",
         "fn f() { let x = ; }",
@@ -1660,6 +1751,9 @@ int main(void)
     test_string_literal();
     test_string_call_arguments();
     test_unterminated_string_literal();
+    test_c_string_literal();
+    test_c_string_call_arguments();
+    test_unterminated_c_string_literal();
     test_let_statement_with_type();
     test_var_statement_inferred();
     test_expression_statements();

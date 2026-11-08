@@ -281,13 +281,16 @@ static CcExpression *parse_primary(CcParser *parser)
         return expression;
     }
 
-    if (parser->current.kind == CC_TOKEN_STRING_LITERAL) {
+    if (parser->current.kind == CC_TOKEN_STRING_LITERAL ||
+        parser->current.kind == CC_TOKEN_C_STRING_LITERAL) {
         CcToken token = parser->current;
         CcExpression *expression = allocate(parser, sizeof(*expression));
 
         if (expression == NULL) return NULL;
 
-        expression->kind = CC_AST_EXPRESSION_STRING_LITERAL;
+        expression->kind = token.kind == CC_TOKEN_STRING_LITERAL
+            ? CC_AST_EXPRESSION_STRING_LITERAL
+            : CC_AST_EXPRESSION_C_STRING_LITERAL;
         expression->span = token.span;
 
         advance(parser);
