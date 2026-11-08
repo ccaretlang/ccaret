@@ -35,6 +35,26 @@ Statements, expressions, patterns, types, generics and attributes need a full gr
 - An `if` used as an expression needs an `else`, and the branches must have compatible types.
 - Assignment is a statement and never produces a value.
 
+## Tuples and destructuring
+
+Parentheses without a comma group one expression or type: `(x)` or `(T)`.
+An empty pair `()` is a zero-element tuple; a comma distinguishes a
+one-element tuple `(x,)` from grouping. Tuples with two or more elements
+allow an optional trailing comma, e.g. `(x, y,)`. The same rules apply to
+tuple expressions and tuple types, including nested forms.
+
+The binding pattern of a `let` or `var` declaration can be a name or a
+tuple of nested binding patterns: `let (x, (y, z)) = value;`. A type
+annotation after the pattern describes the entire bound value:
+`let (a, b): (i32, i32) = pair;`. Parentheses without a comma group a
+single pattern, just as with expressions. Tuple member access `pair.0`
+remains an ordinary postfix expression; consecutive accesses such as
+`pair.1.0` are lexed as two integer member indices rather than as a
+floating-point literal. Ordinary floats such as `1.5` are unchanged.
+
+These are syntax rules; matching tuple arity and component types, checking
+binding names and lowering tuple values are responsibilities of later phases.
+
 ## Operator precedence (highest to lowest)
 
 | Level | Operators | Associativity |

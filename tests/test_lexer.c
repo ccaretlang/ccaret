@@ -485,6 +485,45 @@ static void test_float_vs_range(void)
     fixture_destroy(&fixture);
 }
 
+static void test_tuple_member_dots_vs_float(void)
+{
+    static const char *const source = "obj.1.0 obj . 1.0 1.5 1..2.3";
+    static const struct {
+        CcTokenKind kind;
+        size_t start;
+        size_t end;
+    } expected[] = {
+        { CC_TOKEN_IDENTIFIER, 0, 3 },
+        { CC_TOKEN_DOT, 3, 4 },
+        { CC_TOKEN_INTEGER_LITERAL, 4, 5 },
+        { CC_TOKEN_DOT, 5, 6 },
+        { CC_TOKEN_INTEGER_LITERAL, 6, 7 },
+        { CC_TOKEN_IDENTIFIER, 8, 11 },
+        { CC_TOKEN_DOT, 12, 13 },
+        { CC_TOKEN_INTEGER_LITERAL, 14, 15 },
+        { CC_TOKEN_DOT, 15, 16 },
+        { CC_TOKEN_INTEGER_LITERAL, 16, 17 },
+        { CC_TOKEN_FLOAT_LITERAL, 18, 21 },
+        { CC_TOKEN_INTEGER_LITERAL, 22, 23 },
+        { CC_TOKEN_DOT_DOT, 23, 25 },
+        { CC_TOKEN_FLOAT_LITERAL, 25, 28 },
+        { CC_TOKEN_EOF, 28, 28 }
+    };
+    LexerFixture fixture;
+
+    fixture_init(&fixture, source);
+
+    for (size_t i = 0; i < sizeof(expected) / sizeof(expected[0]); i++) {
+        CcToken token = cc_lexer_next(&fixture.lexer);
+
+        assert(token.kind == expected[i].kind);
+        assert(token.span.start == expected[i].start);
+        assert(token.span.end == expected[i].end);
+    }
+
+    fixture_destroy(&fixture);
+}
+
 static void test_invalid_floats(void)
 {
     static const char *const invalid[] = {
@@ -941,6 +980,7 @@ int main(void)
     test_invalid_integers();
     test_float_literals();
     test_float_vs_range();
+    test_tuple_member_dots_vs_float();
     test_invalid_floats();
     test_string_literals();
     test_c_string_literals();

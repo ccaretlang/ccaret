@@ -242,7 +242,8 @@ static CcToken scan_number(CcLexer *lexer)
     if (!saw_digit) valid = false;
 
     if (base == 10) {
-        if (offset + 1 < file->length &&
+        if (lexer->previous_kind != CC_TOKEN_DOT &&
+            offset + 1 < file->length &&
             file->bytes[offset] == '.' &&
             is_decimal_digit(file->bytes[offset + 1])) {
             is_float = true;
@@ -678,9 +679,10 @@ void cc_lexer_init(CcLexer *lexer, const CcSourceFile *file, CcFileId file_id)
     lexer->file_id = file_id;
     lexer->offset = 0;
     lexer->error = CC_LEX_ERROR_NONE;
+    lexer->previous_kind = CC_TOKEN_INVALID;
 }
 
-CcToken cc_lexer_next(CcLexer *lexer)
+static CcToken scan_next_token(CcLexer *lexer)
 {
     if (lexer == NULL || lexer->file == NULL)
         return make_token(CC_TOKEN_INVALID, CC_FILE_ID_INVALID, 0, 0);
@@ -773,6 +775,15 @@ CcToken cc_lexer_next(CcLexer *lexer)
         start,
         (uint32_t)lexer->offset
     );
+}
+
+CcToken cc_lexer_next(CcLexer *lexer)
+{
+    CcToken token = scan_next_token(lexer);
+
+    if (lexer != NULL) lexer->previous_kind = token.kind;
+
+    return token;
 }
 
 const char *cc_token_kind_name(CcTokenKind kind)

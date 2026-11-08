@@ -137,6 +137,7 @@ typedef struct {
     CcFileId file_id;
     size_t offset;
     CcLexErrorKind error;
+    CcTokenKind previous_kind;
 } CcLexer;
 
 void cc_lexer_init(CcLexer *lexer, const CcSourceFile *file, CcFileId file_id);

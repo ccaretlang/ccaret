@@ -5,9 +5,13 @@
 #include "lexer/lexer.h"
 
 typedef struct CcType CcType;
+typedef struct CcTupleTypeElement CcTupleTypeElement;
 typedef struct CcParameter CcParameter;
 typedef struct CcCallArgument CcCallArgument;
 typedef struct CcExpression CcExpression;
+typedef struct CcTupleExpressionElement CcTupleExpressionElement;
+typedef struct CcPattern CcPattern;
+typedef struct CcTuplePatternElement CcTuplePatternElement;
 typedef struct CcStatement CcStatement;
 typedef struct CcBlock CcBlock;
 typedef struct CcIf CcIf;
@@ -21,7 +25,9 @@ typedef enum {
     CC_AST_TYPE_OPTIONAL,
     CC_AST_TYPE_POINTER,
     CC_AST_TYPE_SLICE,
-    CC_AST_TYPE_ARRAY
+    CC_AST_TYPE_ARRAY,
+    CC_AST_TYPE_PARENTHESIZED,
+    CC_AST_TYPE_TUPLE
 } CcTypeKind;
 
 typedef enum {
@@ -34,6 +40,7 @@ typedef enum {
     CC_AST_EXPRESSION_SOME,
     CC_AST_EXPRESSION_IDENTIFIER,
     CC_AST_EXPRESSION_PARENTHESIZED,
+    CC_AST_EXPRESSION_TUPLE,
     CC_AST_EXPRESSION_UNARY,
     CC_AST_EXPRESSION_BINARY,
     CC_AST_EXPRESSION_CALL,
@@ -41,6 +48,12 @@ typedef enum {
     CC_AST_EXPRESSION_INDEX,
     CC_AST_EXPRESSION_TUPLE_MEMBER
 } CcExpressionKind;
+
+typedef enum {
+    CC_AST_PATTERN_NAME,
+    CC_AST_PATTERN_PARENTHESIZED,
+    CC_AST_PATTERN_TUPLE
+} CcPatternKind;
 
 typedef enum {
     CC_AST_STATEMENT_RETURN,
@@ -116,7 +129,14 @@ struct CcType {
             CcExpression *length;
             CcType *element;
         } array;
+        CcType *parenthesized_inner;
+        CcTupleTypeElement *tuple_elements;
     };
+};
+
+struct CcTupleTypeElement {
+    CcType *type;
+    CcTupleTypeElement *next;
 };
 
 struct CcParameter {
@@ -129,6 +149,26 @@ struct CcParameter {
 struct CcCallArgument {
     CcExpression *value;
     CcCallArgument *next;
+};
+
+struct CcTupleExpressionElement {
+    CcExpression *value;
+    CcTupleExpressionElement *next;
+};
+
+struct CcTuplePatternElement {
+    CcPattern *pattern;
+    CcTuplePatternElement *next;
+};
+
+struct CcPattern {
+    CcPatternKind kind;
+    CcSourceSpan span;
+    union {
+        CcSourceSpan name;
+        CcPattern *parenthesized_inner;
+        CcTuplePatternElement *tuple_elements;
+    };
 };
 
 typedef struct {
@@ -145,6 +185,7 @@ struct CcExpression {
         CcExpression *some_value;
         CcSourceSpan identifier_name;
         CcExpression *parenthesized_inner;
+        CcTupleExpressionElement *tuple_elements;
         struct {
             CcExpression *operand;
             CcUnaryOperator operator;
@@ -181,7 +222,8 @@ struct CcStatement {
     union {
         CcExpression *return_expression;
         struct {
-            CcSourceSpan name;
+            CcSourceSpan name;    /* Only valid for a simple name binding. */
+            CcPattern *pattern;
             bool mutable;      /* `var` versus `let`. */
             CcType *type;      /* NULL when the type is inferred. */
             CcExpression *initializer;

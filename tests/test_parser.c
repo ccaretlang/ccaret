@@ -2702,7 +2702,6 @@ static void test_parse_errors(void)
         "fn f() { let x = ; }",
         "fn f() { let x: i32 = 1",
         "fn f() { var x: = 1; }",
-        "fn f() { let (x, y) = x; }",
         "fn f() { x = ; }",
         "fn f() { x = 1 }",
         "fn f() { = 1; }",

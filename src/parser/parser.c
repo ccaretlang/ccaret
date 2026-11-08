@@ -374,11 +374,67 @@ static CcExpression *parse_primary(CcParser *parser)
 
         advance(parser);
 
+        CcToken rparen;
+
+        if (accept(parser, CC_TOKEN_RPAREN, &rparen)) {
+            CcExpression *tuple = allocate(parser, sizeof(*tuple));
+
+            if (tuple == NULL) return NULL;
+
+            tuple->kind = CC_AST_EXPRESSION_TUPLE;
+            tuple->span.file_id = lparen.span.file_id;
+            tuple->span.start = lparen.span.start;
+            tuple->span.end = rparen.span.end;
+            tuple->tuple_elements = NULL;
+            return tuple;
+        }
+
         CcExpression *inner = parse_expression(parser);
 
         if (parser->failed || inner == NULL) return NULL;
 
-        CcToken rparen;
+        if (parser->current.kind == CC_TOKEN_COMMA) {
+            CcTupleExpressionElement *first = allocate(parser, sizeof(*first));
+
+            if (first == NULL) return NULL;
+
+            first->value = inner;
+            first->next = NULL;
+            CcTupleExpressionElement **link = &first->next;
+
+            while (accept(parser, CC_TOKEN_COMMA, NULL)) {
+                if (parser->current.kind == CC_TOKEN_RPAREN) break;
+
+                CcExpression *value = parse_expression(parser);
+
+                if (parser->failed || value == NULL) return NULL;
+
+                CcTupleExpressionElement *element =
+                    allocate(parser, sizeof(*element));
+
+                if (element == NULL) return NULL;
+
+                element->value = value;
+                element->next = NULL;
+                *link = element;
+                link = &element->next;
+            }
+
+            if (!expect(parser, CC_TOKEN_RPAREN,
+                        "expected `)` after tuple expression", &rparen))
+                return NULL;
+
+            CcExpression *tuple = allocate(parser, sizeof(*tuple));
+
+            if (tuple == NULL) return NULL;
+
+            tuple->kind = CC_AST_EXPRESSION_TUPLE;
+            tuple->span.file_id = lparen.span.file_id;
+            tuple->span.start = lparen.span.start;
+            tuple->span.end = rparen.span.end;
+            tuple->tuple_elements = first;
+            return tuple;
+        }
 
         if (!expect(parser, CC_TOKEN_RPAREN, "expected `)` after expression",
                     &rparen))
@@ -635,6 +691,88 @@ static CcExpression *parse_expression(CcParser *parser)
 
 static CcType *parse_type(CcParser *parser)
 {
+    if (parser->current.kind == CC_TOKEN_LPAREN) {
+        CcToken lparen = parser->current;
+
+        advance(parser);
+
+        CcToken rparen;
+        CcType *inner = NULL;
+
+        if (parser->current.kind != CC_TOKEN_RPAREN) {
+            inner = parse_type(parser);
+
+            if (parser->failed || inner == NULL) return NULL;
+        }
+
+        if (inner == NULL || parser->current.kind == CC_TOKEN_COMMA) {
+            CcTupleTypeElement *first = NULL;
+            CcTupleTypeElement **link = &first;
+
+            if (inner != NULL) {
+                first = allocate(parser, sizeof(*first));
+
+                if (first == NULL) return NULL;
+
+                first->type = inner;
+                first->next = NULL;
+                link = &first->next;
+            }
+
+            while (accept(parser, CC_TOKEN_COMMA, NULL)) {
+                if (parser->current.kind == CC_TOKEN_RPAREN) break;
+
+                CcType *element_type = parse_type(parser);
+
+                if (parser->failed || element_type == NULL) return NULL;
+
+                CcTupleTypeElement *element =
+                    allocate(parser, sizeof(*element));
+
+                if (element == NULL) return NULL;
+
+                element->type = element_type;
+                element->next = NULL;
+                *link = element;
+                link = &element->next;
+            }
+
+            if (!expect(parser, CC_TOKEN_RPAREN,
+                        "expected `)` after tuple type", &rparen))
+                return NULL;
+
+            CcType *type = allocate(parser, sizeof(*type));
+
+            if (type == NULL) return NULL;
+
+            type->kind = CC_AST_TYPE_TUPLE;
+            type->span.file_id = lparen.span.file_id;
+            type->span.start = lparen.span.start;
+            type->span.end = rparen.span.end;
+            type->pointer_pointee_const = false;
+            type->slice_element_const = false;
+            type->tuple_elements = first;
+            return type;
+        }
+
+        if (!expect(parser, CC_TOKEN_RPAREN,
+                    "expected `)` after type", &rparen))
+            return NULL;
+
+        CcType *type = allocate(parser, sizeof(*type));
+
+        if (type == NULL) return NULL;
+
+        type->kind = CC_AST_TYPE_PARENTHESIZED;
+        type->span.file_id = lparen.span.file_id;
+        type->span.start = lparen.span.start;
+        type->span.end = rparen.span.end;
+        type->pointer_pointee_const = false;
+        type->slice_element_const = false;
+        type->parenthesized_inner = inner;
+        return type;
+    }
+
     if (parser->current.kind == CC_TOKEN_LBRACKET) {
         CcToken lbracket = parser->current;
 
@@ -731,6 +869,105 @@ static CcType *parse_type(CcParser *parser)
     return type;
 }
 
+static CcPattern *parse_pattern(CcParser *parser)
+{
+    if (parser->current.kind == CC_TOKEN_IDENTIFIER) {
+        CcToken name = parser->current;
+        CcPattern *pattern = allocate(parser, sizeof(*pattern));
+
+        if (pattern == NULL) return NULL;
+
+        pattern->kind = CC_AST_PATTERN_NAME;
+        pattern->span = name.span;
+        pattern->name = name.span;
+
+        advance(parser);
+        return pattern;
+    }
+
+    if (parser->current.kind == CC_TOKEN_LPAREN) {
+        CcToken lparen = parser->current;
+
+        advance(parser);
+
+        CcPattern *inner = NULL;
+
+        if (parser->current.kind != CC_TOKEN_RPAREN) {
+            inner = parse_pattern(parser);
+
+            if (parser->failed || inner == NULL) return NULL;
+        }
+
+        CcToken rparen;
+
+        if (inner == NULL || parser->current.kind == CC_TOKEN_COMMA) {
+            CcTuplePatternElement *first = NULL;
+            CcTuplePatternElement **link = &first;
+
+            if (inner != NULL) {
+                first = allocate(parser, sizeof(*first));
+
+                if (first == NULL) return NULL;
+
+                first->pattern = inner;
+                first->next = NULL;
+                link = &first->next;
+            }
+
+            while (accept(parser, CC_TOKEN_COMMA, NULL)) {
+                if (parser->current.kind == CC_TOKEN_RPAREN) break;
+
+                CcPattern *element_pattern = parse_pattern(parser);
+
+                if (parser->failed || element_pattern == NULL) return NULL;
+
+                CcTuplePatternElement *element =
+                    allocate(parser, sizeof(*element));
+
+                if (element == NULL) return NULL;
+
+                element->pattern = element_pattern;
+                element->next = NULL;
+                *link = element;
+                link = &element->next;
+            }
+
+            if (!expect(parser, CC_TOKEN_RPAREN,
+                        "expected `)` after tuple pattern", &rparen))
+                return NULL;
+
+            CcPattern *pattern = allocate(parser, sizeof(*pattern));
+
+            if (pattern == NULL) return NULL;
+
+            pattern->kind = CC_AST_PATTERN_TUPLE;
+            pattern->span.file_id = lparen.span.file_id;
+            pattern->span.start = lparen.span.start;
+            pattern->span.end = rparen.span.end;
+            pattern->tuple_elements = first;
+            return pattern;
+        }
+
+        if (!expect(parser, CC_TOKEN_RPAREN,
+                    "expected `)` after pattern", &rparen))
+            return NULL;
+
+        CcPattern *pattern = allocate(parser, sizeof(*pattern));
+
+        if (pattern == NULL) return NULL;
+
+        pattern->kind = CC_AST_PATTERN_PARENTHESIZED;
+        pattern->span.file_id = lparen.span.file_id;
+        pattern->span.start = lparen.span.start;
+        pattern->span.end = rparen.span.end;
+        pattern->parenthesized_inner = inner;
+        return pattern;
+    }
+
+    report_error(parser, "expected variable name");
+    return NULL;
+}
+
 static CcParameter *parse_parameter(CcParser *parser)
 {
     CcToken name;
@@ -799,10 +1036,9 @@ static CcStatement *parse_let_statement(CcParser *parser)
 
     advance(parser);
 
-    CcToken name;
+    CcPattern *pattern = parse_pattern(parser);
 
-    if (!expect(parser, CC_TOKEN_IDENTIFIER, "expected variable name", &name))
-        return NULL;
+    if (parser->failed || pattern == NULL) return NULL;
 
     CcType *type = NULL;
 
@@ -835,7 +1071,14 @@ static CcStatement *parse_let_statement(CcParser *parser)
     statement->span.end = semicolon.span.end;
     statement->next = NULL;
     statement->let.mutable = mutable;
-    statement->let.name = name.span;
+    if (pattern->kind == CC_AST_PATTERN_NAME)
+        statement->let.name = pattern->name;
+    else {
+        statement->let.name.file_id = CC_FILE_ID_INVALID;
+        statement->let.name.start = 0;
+        statement->let.name.end = 0;
+    }
+    statement->let.pattern = pattern;
     statement->let.type = type;
     statement->let.initializer = initializer;
 
