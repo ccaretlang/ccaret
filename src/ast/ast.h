@@ -12,6 +12,7 @@ typedef struct CcStatement CcStatement;
 typedef struct CcBlock CcBlock;
 typedef struct CcIf CcIf;
 typedef struct CcWhile CcWhile;
+typedef struct CcLoop CcLoop;
 typedef struct CcFunctionDeclaration CcFunctionDeclaration;
 
 typedef enum {
@@ -38,7 +39,8 @@ typedef enum {
     CC_AST_STATEMENT_IF,
     CC_AST_STATEMENT_WHILE,
     CC_AST_STATEMENT_BREAK,
-    CC_AST_STATEMENT_CONTINUE
+    CC_AST_STATEMENT_CONTINUE,
+    CC_AST_STATEMENT_LOOP
 } CcStatementKind;
 
 typedef enum {
@@ -165,6 +167,7 @@ struct CcStatement {
         } assignment;
         CcIf *if_statement;
         CcWhile *while_statement;
+        CcLoop *loop_statement;
     };
 };
 
@@ -184,6 +187,11 @@ struct CcIf {
 struct CcWhile {
     CcSourceSpan span;
     CcExpression *condition;
+    CcBlock *body;
+};
+
+struct CcLoop {
+    CcSourceSpan span;
     CcBlock *body;
 };
 

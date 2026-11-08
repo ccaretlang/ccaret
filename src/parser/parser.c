@@ -661,6 +661,7 @@ static CcStatement *parse_let_statement(CcParser *parser)
 static CcBlock *parse_block(CcParser *parser);
 static CcIf *parse_if(CcParser *parser);
 static CcWhile *parse_while(CcParser *parser);
+static CcLoop *parse_loop(CcParser *parser);
 static CcStatement *parse_loop_keyword_statement(CcParser *parser,
                                                  CcStatementKind kind);
 
@@ -756,6 +757,25 @@ static CcBlock *parse_block(CcParser *parser)
             CcStatement *statement = parse_loop_keyword_statement(parser, kind);
 
             if (parser->failed || statement == NULL) break;
+
+            *link = statement;
+            link = &statement->next;
+            continue;
+        }
+
+        if (parser->current.kind == CC_TOKEN_KW_LOOP) {
+            CcLoop *loop_statement = parse_loop(parser);
+
+            if (parser->failed || loop_statement == NULL) break;
+
+            CcStatement *statement = allocate(parser, sizeof(*statement));
+
+            if (statement == NULL) break;
+
+            statement->kind = CC_AST_STATEMENT_LOOP;
+            statement->span = loop_statement->span;
+            statement->next = NULL;
+            statement->loop_statement = loop_statement;
 
             *link = statement;
             link = &statement->next;
@@ -924,6 +944,28 @@ static CcStatement *parse_loop_keyword_statement(CcParser *parser,
     statement->next = NULL;
 
     return statement;
+}
+
+static CcLoop *parse_loop(CcParser *parser)
+{
+    CcToken keyword = parser->current;
+
+    advance(parser);
+
+    CcBlock *body = parse_block(parser);
+
+    if (parser->failed || body == NULL) return NULL;
+
+    CcLoop *loop_statement = allocate(parser, sizeof(*loop_statement));
+
+    if (loop_statement == NULL) return NULL;
+
+    loop_statement->span.file_id = keyword.span.file_id;
+    loop_statement->span.start = keyword.span.start;
+    loop_statement->span.end = body->span.end;
+    loop_statement->body = body;
+
+    return loop_statement;
 }
 
 static CcFunctionDeclaration *parse_function(CcParser *parser)

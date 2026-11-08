@@ -1063,6 +1063,70 @@ static void test_continue_statement(void)
     fixture_destroy(&fixture);
 }
 
+static void test_loop_statement(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { loop { } }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+    assert(function->body != NULL);
+    assert(function->body->span.start == 7 && function->body->span.end == 19);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_LOOP);
+    assert(statement->next == NULL);
+    assert(statement->span.start == 9 && statement->span.end == 17);
+
+    CcLoop *loop_statement = statement->loop_statement;
+
+    assert(loop_statement != NULL);
+    assert(loop_statement->body != NULL);
+    assert(loop_statement->body->span.start == 14);
+    assert(loop_statement->body->span.end == 17);
+    assert(loop_statement->body->first == NULL);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_loop_statement_with_break(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { loop { break; } }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_LOOP);
+    assert(statement->span.start == 9 && statement->span.end == 24);
+
+    CcLoop *loop_statement = statement->loop_statement;
+
+    assert(loop_statement != NULL);
+    assert(loop_statement->body != NULL);
+    assert(loop_statement->body->span.start == 14);
+    assert(loop_statement->body->span.end == 24);
+
+    CcStatement *break_statement = loop_statement->body->first;
+
+    assert(break_statement != NULL);
+    assert(break_statement->kind == CC_AST_STATEMENT_BREAK);
+    assert(break_statement->span.start == 16 && break_statement->span.end == 22);
+
+    fixture_destroy(&fixture);
+}
+
 static void test_parse_errors(void)
 {
     static const char *const invalid[] = {
@@ -1107,7 +1171,9 @@ static void test_parse_errors(void)
         "fn f() { while x }",
         "fn f() { while x { break } }",
         "fn f() { break 1; }",
-        "fn f() { continue }"
+        "fn f() { continue }",
+        "fn f() { loop }",
+        "fn f() { loop; }"
     };
 
     ParserFixture fixture;
@@ -1169,6 +1235,8 @@ int main(void)
     test_while_statement_with_body();
     test_break_and_continue_statements();
     test_continue_statement();
+    test_loop_statement();
+    test_loop_statement_with_break();
     test_parse_errors();
     test_empty_source_without_functions();
 
