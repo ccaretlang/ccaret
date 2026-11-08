@@ -1,0 +1,255 @@
+#include "parser/parser.h"
+
+#include <assert.h>
+#include <stdio.h>
+#include <string.h>
+
+typedef struct {
+    CcSourceManager sources;
+    CcFileId id;
+    CcLexer lexer;
+    CcArena arena;
+    CcParser parser;
+} ParserFixture;
+
+static void fixture_init(ParserFixture *fixture, const char *text)
+{
+    CcSourceError error;
+
+    cc_source_manager_init(&fixture->sources);
+    assert(cc_source_add_memory(&fixture->sources, "test",
+                                (const unsigned char *)text, strlen(text),
+                                &fixture->id, &error));
+    const CcSourceFile *file = cc_source_get(&fixture->sources, fixture->id);
+
+    assert(file != NULL);
+
+    cc_lexer_init(&fixture->lexer, file, fixture->id);
+    cc_arena_init(&fixture->arena);
+    cc_parser_init(&fixture->parser, &fixture->lexer, &fixture->arena);
+}
+
+static void fixture_destroy(ParserFixture *fixture)
+{
+    cc_arena_destroy(&fixture->arena);
+    cc_source_manager_destroy(&fixture->sources);
+}
+
+static void test_simple_function(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn main() -> i32 {\n    return 42;\n}");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+    assert(function->next == NULL);
+    assert(function->span.start == 0 && function->span.end == 35);
+    assert(function->name.start == 3 && function->name.end == 7);
+    assert(function->parameters == NULL);
+    assert(function->return_type != NULL);
+    assert(function->return_type->kind == CC_AST_TYPE_NAMED);
+    assert(function->return_type->span.start == 13);
+    assert(function->return_type->span.end == 16);
+    assert(function->body != NULL);
+    assert(function->body->span.start == 17);
+    assert(function->body->span.end == 35);
+    assert(function->body->first != NULL);
+    assert(function->body->first->kind == CC_AST_STATEMENT_RETURN);
+    assert(function->body->first->next == NULL);
+    assert(function->body->first->span.start == 23);
+    assert(function->body->first->span.end == 33);
+    assert(function->body->first->return_expression != NULL);
+    assert(function->body->first->return_expression->kind ==
+           CC_AST_EXPRESSION_INTEGER_LITERAL);
+    assert(function->body->first->return_expression->span.start == 30);
+    assert(function->body->first->return_expression->span.end == 32);
+    assert(function->body->first->return_expression->integer_literal.value == 42);
+    assert(function->body->first->return_expression->integer_literal.overflow ==
+           false);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_empty_block(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() {}");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+    assert(function->name.start == 3 && function->name.end == 4);
+    assert(function->parameters == NULL);
+    assert(function->return_type == NULL);
+    assert(function->body != NULL);
+    assert(function->body->first == NULL);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_return_no_expression(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { return; }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+    assert(function->body != NULL);
+    assert(function->body->first != NULL);
+    assert(function->body->first->kind == CC_AST_STATEMENT_RETURN);
+    assert(function->body->first->return_expression == NULL);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_parameters_and_identifier(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn add(a: i32, b: i32) { return a; }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+    assert(function->parameters != NULL);
+    assert(function->return_type == NULL);
+
+    CcParameter *first = function->parameters;
+
+    assert(first->name.start == 7 && first->name.end == 8);
+    assert(first->type != NULL);
+    assert(first->type->kind == CC_AST_TYPE_NAMED);
+    assert(first->type->span.start == 10);
+    assert(first->type->span.end == 13);
+    assert(first->span.start == 7 && first->span.end == 13);
+
+    CcParameter *second = first->next;
+
+    assert(second != NULL);
+    assert(second->name.start == 15 && second->name.end == 16);
+    assert(second->type != NULL);
+    assert(second->type->span.start == 18);
+    assert(second->type->span.end == 21);
+    assert(second->span.start == 15 && second->span.end == 21);
+    assert(second->next == NULL);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_RETURN);
+    assert(statement->return_expression != NULL);
+    assert(statement->return_expression->kind ==
+           CC_AST_EXPRESSION_IDENTIFIER);
+    assert(statement->return_expression->span.start == 32);
+    assert(statement->return_expression->span.end == 33);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_multiple_functions(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn a() {} fn b() {}");
+
+    CcFunctionDeclaration *first = cc_parser_parse_program(&fixture.parser);
+
+    assert(first != NULL);
+    assert(!fixture.parser.failed);
+    assert(first->name.start == 3 && first->name.end == 4);
+
+    CcFunctionDeclaration *second = first->next;
+
+    assert(second != NULL);
+    assert(second->name.start == 13 && second->name.end == 14);
+    assert(second->next == NULL);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_integer_overflow_is_recorded(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture,
+                 "fn f() { return 18446744073709551616; }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+    assert(function->body != NULL);
+    assert(function->body->first != NULL);
+    assert(function->body->first->return_expression != NULL);
+    assert(function->body->first->return_expression->integer_literal.overflow ==
+           true);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_parse_errors(void)
+{
+    static const char *const invalid[] = {
+        "main() {}",
+        "fn () {}",
+        "fn main( {}",
+        "fn main() -> { return; }",
+        "let x = 1;",
+        "fn main() { return 42 }",
+        "fn main() { return; ",
+        "fn main() { blabla }",
+        "fn main() { 42; }",
+        "fn 42() {}"
+    };
+
+    ParserFixture fixture;
+
+    for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+        fixture_init(&fixture, invalid[i]);
+
+        cc_parser_parse_program(&fixture.parser);
+
+        assert(fixture.parser.failed);
+        assert(fixture.parser.error != NULL);
+
+        fixture_destroy(&fixture);
+    }
+}
+
+static void test_empty_source_without_functions(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "   \n");
+
+    CcFunctionDeclaration *functions = cc_parser_parse_program(&fixture.parser);
+
+    assert(functions == NULL);
+    assert(!fixture.parser.failed);
+
+    fixture_destroy(&fixture);
+}
+
+int main(void)
+{
+    test_simple_function();
+    test_empty_block();
+    test_return_no_expression();
+    test_parameters_and_identifier();
+    test_multiple_functions();
+    test_integer_overflow_is_recorded();
+    test_parse_errors();
+    test_empty_source_without_functions();
+
+    puts("parser: all tests passed");
+    return 0;
+}
