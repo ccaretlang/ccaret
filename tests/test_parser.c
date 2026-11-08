@@ -46,6 +46,7 @@ static void test_simple_function(void)
     assert(function != NULL);
     assert(!fixture.parser.failed);
     assert(function->next == NULL);
+    assert(function->is_public == false);
     assert(function->span.start == 0 && function->span.end == 35);
     assert(function->name.start == 3 && function->name.end == 7);
     assert(function->parameters == NULL);
@@ -172,6 +173,62 @@ static void test_multiple_functions(void)
     assert(second != NULL);
     assert(second->name.start == 13 && second->name.end == 14);
     assert(second->next == NULL);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_public_function(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture,
+                 "pub fn f(x: i32) -> i32 { return x; } fn g() {}");
+
+    CcFunctionDeclaration *first = cc_parser_parse_program(&fixture.parser);
+
+    assert(first != NULL);
+    assert(!fixture.parser.failed);
+    assert(first->is_public);
+    assert(first->span.file_id == fixture.id);
+    assert(first->span.start == 0 && first->span.end == 37);
+    assert(first->name.start == 7 && first->name.end == 8);
+    assert(first->parameters != NULL);
+    assert(first->parameters->span.start == 9);
+    assert(first->parameters->span.end == 15);
+    assert(first->parameters->next == NULL);
+    assert(first->return_type != NULL);
+    assert(first->return_type->span.start == 20);
+    assert(first->return_type->span.end == 23);
+    assert(first->body != NULL);
+    assert(first->body->span.start == 24 && first->body->span.end == 37);
+    assert(first->body->first != NULL);
+    assert(first->body->first->kind == CC_AST_STATEMENT_RETURN);
+
+    CcFunctionDeclaration *second = first->next;
+
+    assert(second != NULL);
+    assert(!second->is_public);
+    assert(second->span.start == 38 && second->span.end == 47);
+    assert(second->name.start == 41 && second->name.end == 42);
+    assert(second->next == NULL);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_public_function_eof(void)
+{
+    static const char *source = "pub";
+    ParserFixture fixture;
+
+    fixture_init(&fixture, source);
+
+    assert(cc_parser_parse_program(&fixture.parser) == NULL);
+    assert(fixture.parser.failed);
+    assert(fixture.parser.error != NULL);
+    assert(strcmp(fixture.parser.error, "expected function declaration") == 0);
+    assert(fixture.parser.error_span.file_id == fixture.id);
+    assert(fixture.parser.error_span.start == strlen(source));
+    assert(fixture.parser.error_span.end == strlen(source));
 
     fixture_destroy(&fixture);
 }
@@ -1416,6 +1473,8 @@ static void test_parse_errors(void)
     static const char *const invalid[] = {
         "main() {}",
         "fn () {}",
+        "pub let x = 1;",
+        "pub pub fn f() {}",
         "fn main( {}",
         "fn main() -> { return; }",
         "let x = 1;",
@@ -1503,6 +1562,8 @@ int main(void)
     test_return_no_expression();
     test_parameters_and_identifier();
     test_multiple_functions();
+    test_public_function();
+    test_public_function_eof();
     test_integer_overflow_is_recorded();
     test_binary_precedence();
     test_parenthesized_expression();

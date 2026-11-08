@@ -1057,6 +1057,7 @@ static CcFor *parse_for(CcParser *parser)
 static CcFunctionDeclaration *parse_function(CcParser *parser)
 {
     uint32_t start = parser->current.span.start;
+    bool is_public = accept(parser, CC_TOKEN_KW_PUB, NULL);
     CcToken keyword;
 
     if (!expect(parser, CC_TOKEN_KW_FN, "expected function declaration",
@@ -1112,6 +1113,7 @@ static CcFunctionDeclaration *parse_function(CcParser *parser)
     function->span.start = start;
     function->span.end = body->span.end;
     function->name = name.span;
+    function->is_public = is_public;
     function->parameters = parameters;
     function->return_type = return_type;
     function->body = body;
@@ -1154,7 +1156,8 @@ CcFunctionDeclaration *cc_parser_parse_program(CcParser *parser)
     CcFunctionDeclaration **link = &first;
 
     while (!parser->failed && parser->current.kind != CC_TOKEN_EOF) {
-        if (parser->current.kind != CC_TOKEN_KW_FN) {
+        if (parser->current.kind != CC_TOKEN_KW_FN &&
+            parser->current.kind != CC_TOKEN_KW_PUB) {
             report_error(parser, "expected function declaration");
             break;
         }

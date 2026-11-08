@@ -212,6 +212,7 @@ struct CcFor {
 struct CcFunctionDeclaration {
     CcSourceSpan span;
     CcSourceSpan name;
+    bool is_public;
     CcParameter *parameters;
     CcType *return_type;
     CcBlock *body;
