@@ -156,6 +156,120 @@ static void test_parameters_and_identifier(void)
     fixture_destroy(&fixture);
 }
 
+static void test_optional_types(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture,
+                 "fn f(arg: ?i32) -> ?i32 { let value: ?i32 = some(3); return none; }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcParameter *parameter = function->parameters;
+
+    assert(parameter != NULL);
+    assert(parameter->span.start == 5 && parameter->span.end == 14);
+    assert(parameter->type->kind == CC_AST_TYPE_OPTIONAL);
+    assert(parameter->type->span.file_id == fixture.id);
+    assert(parameter->type->span.start == 10);
+    assert(parameter->type->span.end == 14);
+    assert(parameter->type->optional_inner != NULL);
+    assert(parameter->type->optional_inner->kind == CC_AST_TYPE_NAMED);
+    assert(parameter->type->optional_inner->span.start == 11);
+    assert(parameter->type->optional_inner->span.end == 14);
+    assert(parameter->type->optional_inner->optional_inner == NULL);
+    assert(parameter->next == NULL);
+
+    CcType *return_type = function->return_type;
+
+    assert(return_type != NULL);
+    assert(return_type->kind == CC_AST_TYPE_OPTIONAL);
+    assert(return_type->span.start == 19 && return_type->span.end == 23);
+    assert(return_type->optional_inner->kind == CC_AST_TYPE_NAMED);
+    assert(return_type->optional_inner->span.start == 20);
+    assert(return_type->optional_inner->span.end == 23);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_LET);
+    assert(statement->let.type != NULL);
+    assert(statement->let.type->kind == CC_AST_TYPE_OPTIONAL);
+    assert(statement->let.type->span.start == 37);
+    assert(statement->let.type->span.end == 41);
+    assert(statement->let.type->optional_inner->kind == CC_AST_TYPE_NAMED);
+    assert(statement->let.type->optional_inner->span.start == 38);
+    assert(statement->let.type->optional_inner->span.end == 41);
+    assert(statement->let.initializer->kind == CC_AST_EXPRESSION_SOME);
+    assert(statement->next != NULL);
+    assert(statement->next->kind == CC_AST_STATEMENT_RETURN);
+    assert(statement->next->return_expression->kind ==
+           CC_AST_EXPRESSION_NONE_LITERAL);
+    assert(statement->next->next == NULL);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_nested_optional_types(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f(value: ??bool) -> ??i32 {}");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcType *parameter_type = function->parameters->type;
+
+    assert(parameter_type->kind == CC_AST_TYPE_OPTIONAL);
+    assert(parameter_type->span.start == 12 && parameter_type->span.end == 18);
+    assert(parameter_type->optional_inner->kind == CC_AST_TYPE_OPTIONAL);
+    assert(parameter_type->optional_inner->span.start == 13);
+    assert(parameter_type->optional_inner->span.end == 18);
+    assert(parameter_type->optional_inner->optional_inner->kind ==
+           CC_AST_TYPE_NAMED);
+    assert(parameter_type->optional_inner->optional_inner->span.start == 14);
+    assert(parameter_type->optional_inner->optional_inner->span.end == 18);
+
+    CcType *return_type = function->return_type;
+
+    assert(return_type != NULL);
+    assert(return_type->kind == CC_AST_TYPE_OPTIONAL);
+    assert(return_type->span.start == 23 && return_type->span.end == 28);
+    assert(return_type->optional_inner->kind == CC_AST_TYPE_OPTIONAL);
+    assert(return_type->optional_inner->span.start == 24);
+    assert(return_type->optional_inner->span.end == 28);
+    assert(return_type->optional_inner->optional_inner->kind ==
+           CC_AST_TYPE_NAMED);
+    assert(return_type->optional_inner->optional_inner->span.start == 25);
+    assert(return_type->optional_inner->optional_inner->span.end == 28);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_optional_type_eof(void)
+{
+    static const char *source = "fn f() -> ?";
+    ParserFixture fixture;
+
+    fixture_init(&fixture, source);
+
+    assert(cc_parser_parse_program(&fixture.parser) == NULL);
+    assert(fixture.parser.failed);
+    assert(fixture.parser.error != NULL);
+    assert(strcmp(fixture.parser.error, "expected a type") == 0);
+    assert(fixture.parser.error_span.file_id == fixture.id);
+    assert(fixture.parser.error_span.start == strlen(source));
+    assert(fixture.parser.error_span.end == strlen(source));
+
+    fixture_destroy(&fixture);
+}
+
 static void test_multiple_functions(void)
 {
     ParserFixture fixture;
@@ -1933,6 +2047,10 @@ static void test_parse_errors(void)
         "pub pub fn f() {}",
         "fn main( {}",
         "fn main() -> { return; }",
+        "fn f(x: ?) {}",
+        "fn f(x: ?" "?) {}",
+        "fn f() -> ? {}",
+        "fn f() { let x: ? = none; }",
         "let x = 1;",
         "fn main() { return 42 }",
         "fn main() { return; ",
@@ -2035,6 +2153,9 @@ int main(void)
     test_empty_block();
     test_return_no_expression();
     test_parameters_and_identifier();
+    test_optional_types();
+    test_nested_optional_types();
+    test_optional_type_eof();
     test_multiple_functions();
     test_public_function();
     test_public_function_eof();

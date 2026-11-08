@@ -17,7 +17,8 @@ typedef struct CcFor CcFor;
 typedef struct CcFunctionDeclaration CcFunctionDeclaration;
 
 typedef enum {
-    CC_AST_TYPE_NAMED
+    CC_AST_TYPE_NAMED,
+    CC_AST_TYPE_OPTIONAL
 } CcTypeKind;
 
 typedef enum {
@@ -102,6 +103,7 @@ typedef enum {
 struct CcType {
     CcTypeKind kind;
     CcSourceSpan span;
+    CcType *optional_inner;
 };
 
 struct CcParameter {

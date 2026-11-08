@@ -635,6 +635,28 @@ static CcExpression *parse_expression(CcParser *parser)
 
 static CcType *parse_type(CcParser *parser)
 {
+    if (parser->current.kind == CC_TOKEN_QUESTION) {
+        CcToken question = parser->current;
+
+        advance(parser);
+
+        CcType *inner = parse_type(parser);
+
+        if (parser->failed || inner == NULL) return NULL;
+
+        CcType *type = allocate(parser, sizeof(*type));
+
+        if (type == NULL) return NULL;
+
+        type->kind = CC_AST_TYPE_OPTIONAL;
+        type->span.file_id = question.span.file_id;
+        type->span.start = question.span.start;
+        type->span.end = inner->span.end;
+        type->optional_inner = inner;
+
+        return type;
+    }
+
     CcToken name;
 
     if (!expect(parser, CC_TOKEN_IDENTIFIER, "expected a type", &name))
@@ -646,6 +668,7 @@ static CcType *parse_type(CcParser *parser)
 
     type->kind = CC_AST_TYPE_NAMED;
     type->span = name.span;
+    type->optional_inner = NULL;
 
     return type;
 }
