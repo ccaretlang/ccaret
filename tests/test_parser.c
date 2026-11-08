@@ -345,6 +345,41 @@ static void test_var_statement_inferred(void)
     fixture_destroy(&fixture);
 }
 
+static void test_expression_statements(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { 1 + 2; x; }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *first = function->body->first;
+
+    assert(first != NULL);
+    assert(first->kind == CC_AST_STATEMENT_EXPRESSION);
+    assert(first->span.start == 9 && first->span.end == 15);
+    assert(first->expression != NULL);
+    assert(first->expression->kind == CC_AST_EXPRESSION_BINARY);
+    assert(first->expression->span.start == 9);
+    assert(first->expression->span.end == 14);
+    assert(first->next != NULL);
+
+    CcStatement *second = first->next;
+
+    assert(second->kind == CC_AST_STATEMENT_EXPRESSION);
+    assert(second->span.start == 16 && second->span.end == 18);
+    assert(second->expression != NULL);
+    assert(second->expression->kind == CC_AST_EXPRESSION_IDENTIFIER);
+    assert(second->expression->span.start == 16);
+    assert(second->expression->span.end == 17);
+    assert(second->next == NULL);
+
+    fixture_destroy(&fixture);
+}
+
 static void test_parse_errors(void)
 {
     static const char *const invalid[] = {
@@ -356,7 +391,6 @@ static void test_parse_errors(void)
         "fn main() { return 42 }",
         "fn main() { return; ",
         "fn main() { blabla }",
-        "fn main() { 42; }",
         "fn 42() {}",
         "fn main() { return -; }",
         "fn main() { return a + ; }",
@@ -412,6 +446,7 @@ int main(void)
     test_unary_operators();
     test_let_statement_with_type();
     test_var_statement_inferred();
+    test_expression_statements();
     test_parse_errors();
     test_empty_source_without_functions();
 

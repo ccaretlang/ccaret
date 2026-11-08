@@ -523,8 +523,28 @@ static CcBlock *parse_block(CcParser *parser)
             continue;
         }
 
-        report_error(parser, "expected statement");
-        break;
+        CcExpression *expression = parse_expression(parser);
+
+        if (parser->failed || expression == NULL) break;
+
+        CcToken semicolon;
+
+        if (!expect(parser, CC_TOKEN_SEMICOLON, "expected `;`", &semicolon))
+            break;
+
+        CcStatement *statement = allocate(parser, sizeof(*statement));
+
+        if (statement == NULL) break;
+
+        statement->kind = CC_AST_STATEMENT_EXPRESSION;
+        statement->span.file_id = expression->span.file_id;
+        statement->span.start = expression->span.start;
+        statement->span.end = semicolon.span.end;
+        statement->next = NULL;
+        statement->expression = expression;
+
+        *link = statement;
+        link = &statement->next;
     }
 
     if (parser->failed) return NULL;
