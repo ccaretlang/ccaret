@@ -255,6 +255,109 @@ static void test_unary_operators(void)
     fixture_destroy(&fixture);
 }
 
+static void test_boolean_literals(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { if true { return false; } }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_IF);
+    assert(statement->next == NULL);
+
+    CcExpression *condition = statement->if_statement->condition;
+
+    assert(condition != NULL);
+    assert(condition->kind == CC_AST_EXPRESSION_BOOLEAN_LITERAL);
+    assert(condition->boolean_literal == true);
+    assert(condition->span.file_id == fixture.id);
+    assert(condition->span.start == 12 && condition->span.end == 16);
+
+    CcStatement *body_statement = statement->if_statement->then_block->first;
+
+    assert(body_statement != NULL);
+    assert(body_statement->kind == CC_AST_STATEMENT_RETURN);
+    assert(body_statement->next == NULL);
+
+    CcExpression *value = body_statement->return_expression;
+
+    assert(value != NULL);
+    assert(value->kind == CC_AST_EXPRESSION_BOOLEAN_LITERAL);
+    assert(value->boolean_literal == false);
+    assert(value->span.file_id == fixture.id);
+    assert(value->span.start == 26 && value->span.end == 31);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_boolean_operator_precedence(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { let flag = !false && true; }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_LET);
+
+    CcExpression *expression = statement->let.initializer;
+
+    assert(expression != NULL);
+    assert(expression->kind == CC_AST_EXPRESSION_BINARY);
+    assert(expression->binary.operator == CC_AST_BINARY_OPERATOR_AND_AND);
+    assert(expression->span.start == 20 && expression->span.end == 34);
+
+    CcExpression *left = expression->binary.left;
+
+    assert(left != NULL);
+    assert(left->kind == CC_AST_EXPRESSION_UNARY);
+    assert(left->unary.operator == CC_AST_UNARY_OPERATOR_NOT);
+    assert(left->unary.operand->kind == CC_AST_EXPRESSION_BOOLEAN_LITERAL);
+    assert(left->unary.operand->boolean_literal == false);
+    assert(left->unary.operand->span.start == 21);
+    assert(left->unary.operand->span.end == 26);
+
+    CcExpression *right = expression->binary.right;
+
+    assert(right != NULL);
+    assert(right->kind == CC_AST_EXPRESSION_BOOLEAN_LITERAL);
+    assert(right->boolean_literal == true);
+    assert(right->span.start == 30 && right->span.end == 34);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_boolean_expression_eof(void)
+{
+    static const char *source = "fn f() { return true &&";
+    ParserFixture fixture;
+
+    fixture_init(&fixture, source);
+
+    assert(cc_parser_parse_program(&fixture.parser) == NULL);
+    assert(fixture.parser.failed);
+    assert(fixture.parser.error != NULL);
+    assert(strcmp(fixture.parser.error, "expected expression") == 0);
+    assert(fixture.parser.error_span.file_id == fixture.id);
+    assert(fixture.parser.error_span.start == strlen(source));
+    assert(fixture.parser.error_span.end == strlen(source));
+
+    fixture_destroy(&fixture);
+}
+
 static void test_integer_overflow_is_recorded(void)
 {
     ParserFixture fixture;
@@ -1325,6 +1428,8 @@ static void test_parse_errors(void)
         "fn main() { return (1; }",
         "fn main() { return a + b c; }",
         "fn main() { return a b; }",
+        "fn f() { return true false; }",
+        "fn f() { return !; }",
         "fn f() { let x; }",
         "fn f() { let 3 = 1; }",
         "fn f() { let x = ; }",
@@ -1402,6 +1507,9 @@ int main(void)
     test_binary_precedence();
     test_parenthesized_expression();
     test_unary_operators();
+    test_boolean_literals();
+    test_boolean_operator_precedence();
+    test_boolean_expression_eof();
     test_let_statement_with_type();
     test_var_statement_inferred();
     test_expression_statements();

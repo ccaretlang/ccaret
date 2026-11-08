@@ -266,6 +266,21 @@ static CcExpression *parse_primary(CcParser *parser)
         return expression;
     }
 
+    if (parser->current.kind == CC_TOKEN_KW_TRUE ||
+        parser->current.kind == CC_TOKEN_KW_FALSE) {
+        CcToken token = parser->current;
+        CcExpression *expression = allocate(parser, sizeof(*expression));
+
+        if (expression == NULL) return NULL;
+
+        expression->kind = CC_AST_EXPRESSION_BOOLEAN_LITERAL;
+        expression->span = token.span;
+        expression->boolean_literal = token.kind == CC_TOKEN_KW_TRUE;
+
+        advance(parser);
+        return expression;
+    }
+
     if (parser->current.kind == CC_TOKEN_IDENTIFIER) {
         CcToken token = parser->current;
         CcExpression *expression = allocate(parser, sizeof(*expression));
