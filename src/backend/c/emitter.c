@@ -19,6 +19,13 @@ static void emit_type_definitions(FILE *out, const CcIrModule *module)
 {
     for (const CcIrTypeInfo *type = module->types; type != NULL;
          type = type->next) {
+        if (type->kind == CC_IR_TYPE_POINTER) {
+            fputs("typedef ", out);
+            if (type->pointer_const) fputs("const ", out);
+            emit_c_type(out, type->inner);
+            fprintf(out, " *cc_t_%u;\n\n", type->id);
+            continue;
+        }
         fputs("typedef struct {\n", out);
         if (type->kind == CC_IR_TYPE_OPTIONAL) {
             fputs("  bool has;\n  ", out);
@@ -92,6 +99,12 @@ static void emit_instruction(FILE *out, const CcIrInstruction *i)
     case CC_IR_LOAD: fprintf(out, "s%u", i->slot); break;
     case CC_IR_STORE:
         fprintf(out, "s%u = r%u", i->slot, i->lhs); break;
+    case CC_IR_ADDR_SLOT:
+        fprintf(out, "&s%u", i->slot); break;
+    case CC_IR_DEREF_PTR:
+        fprintf(out, "*r%u", i->lhs); break;
+    case CC_IR_STORE_PTR:
+        fprintf(out, "*r%u = r%u", i->lhs, i->rhs); break;
     case CC_IR_NEG: fprintf(out, "ccrt_neg_i32(r%u)", i->lhs); break;
     case CC_IR_NOT: fprintf(out, "!r%u", i->lhs); break;
     case CC_IR_BIT_NOT:
@@ -196,7 +209,8 @@ static void emit_instruction(FILE *out, const CcIrInstruction *i)
     fputs(";\n", out);
 }
 
-static bool emit_function(FILE *out, const CcIrFunction *fn)
+static bool emit_function(FILE *out, const CcIrModule *module,
+                          const CcIrFunction *fn)
 {
     /* Drop unreachable join blocks, e.g. the join after two returning arms.
      * Keeping their C labels triggers -Wunused-label with strict GCC flags. */
@@ -233,6 +247,9 @@ static bool emit_function(FILE *out, const CcIrFunction *fn)
         else if (slot->type == CC_IR_BOOL) fputs("false", out);
         else if (slot->type == CC_IR_I32) fputs("INT32_C(0)", out);
         else if (slot->type == CC_IR_USIZE) fputs("((size_t)0)", out);
+        else if (cc_ir_type_info(module, slot->type) != NULL &&
+                 cc_ir_type_info(module, slot->type)->kind ==
+                     CC_IR_TYPE_POINTER) fputs("NULL", out);
         else fprintf(out, "(cc_t_%u){0}", slot->type);
         fputs(";\n", out);
         fprintf(out, "  (void)s%u;\n", slot->id);
@@ -246,6 +263,9 @@ static bool emit_function(FILE *out, const CcIrFunction *fn)
         if (reg->type == CC_IR_BOOL) fputs("false", out);
         else if (reg->type == CC_IR_I32) fputs("INT32_C(0)", out);
         else if (reg->type == CC_IR_USIZE) fputs("((size_t)0)", out);
+        else if (cc_ir_type_info(module, reg->type) != NULL &&
+                 cc_ir_type_info(module, reg->type)->kind ==
+                     CC_IR_TYPE_POINTER) fputs("NULL", out);
         else fprintf(out, "(cc_t_%u){0}", reg->type);
         fputs(";\n", out);
         fprintf(out, "  (void)r%u;\n", reg->id);
@@ -368,7 +388,7 @@ bool cc_c_emit(FILE *out, const CcIrModule *module, CcIrError *error)
     fputc('\n', out);
     for (const CcIrFunction *fn = module->functions; fn != NULL;
          fn = fn->next) {
-        if (!emit_function(out, fn)) {
+        if (!emit_function(out, module, fn)) {
             error->span = fn->span;
             error->message = "C backend: output write or allocation failed";
             return false;

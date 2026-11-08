@@ -37,6 +37,11 @@ are arena-allocated; it does not yet annotate the AST with persistent
 - Track lexical scopes and the mutability of `let`/`var` bindings.
   Resolve identifiers, prevent duplicate bindings in the same scope, reject
   use before declaration, and check assignment type and mutability.
+- Support `&name` for local address-taking, with `*const T` for `let`
+  and `*T` for `var`; require a lexical `unsafe` block for `*pointer`
+  reads and writes. Reject stores through `*const T`, non-pointer
+  dereferences, non-lvalue address targets and mismatched pointer types.
+  Nested `unsafe` blocks retain lexical scoping and do not disable type checks.
 - Infer simple local types, using `i32` for an unconstrained integer
   literal. Check integer-literal range against the contextual integer type
   (including unary negation), with no implicit narrowing between concrete
@@ -60,12 +65,13 @@ are arena-allocated; it does not yet annotate the AST with persistent
   file per module, local root-relative imports and `pub` visibility.
   Opaque imported structs, selective field access and public C layouts
   remain future work.
-- Pointer dereference/address-taking and other unsafe operations require a
-  later safety-aware pass. The checker rejects those expressions explicitly.
+- Raw pointers do not provide lifetime, aliasing, provenance or ownership
+  checks. Returning the address of a local or otherwise retaining a pointer
+  past its referent's lifetime can dangle. No general escape analysis exists.
 - Assignment targets are mutable local variables, single-level indexed
-  elements of mutable fixed-array locals, or named fields of mutable
-  struct locals. Nested writes, tuple members and slice writes remain
-  unsupported.
+  elements of mutable fixed-array locals, named fields of mutable
+  struct locals, or raw-pointer targets inside `unsafe`. Nested field/index
+  writes, tuple members and slice writes remain unsupported.
 - Float type signatures and operations on float *variables* are recognized;
   floating-point literal expressions still await parser support.
 - Integer literals are checked for representable values (including the

@@ -32,6 +32,37 @@ for name in main names scoping; do
     run_exit 42 "$out/optimized_$name"
 done
 
+# Imported calls inside unsafe blocks must be rewritten by the linker.
+mkdir -p "$out/unsafe_case/app" "$out/unsafe_case/lib"
+cat > "$out/unsafe_case/app/main.caret" <<'EOF'
+module app.main;
+import lib.pointer as pointer;
+fn main() -> i32 {
+    var value = 20;
+    pointer.add(&value);
+    return value;
+}
+EOF
+cat > "$out/unsafe_case/lib/pointer.caret" <<'EOF'
+module lib.pointer;
+import lib.math as math;
+pub fn add(p: *i32) {
+    unsafe { *p += math.delta(); }
+}
+EOF
+cat > "$out/unsafe_case/lib/math.caret" <<'EOF'
+module lib.math;
+pub fn delta() -> i32 { return 22; }
+EOF
+"$binary" check "$out/unsafe_case/app/main.caret"
+"$binary" emit-ir "$out/unsafe_case/app/main.caret" -o "$out/unsafe_case.ir"
+"$binary" build "$out/unsafe_case/app/main.caret" -o "$out/unsafe_case/bin"
+run_exit 42 "$out/unsafe_case/bin"
+gcc -std=c17 -O2 -Wall -Wextra -Wpedantic -Werror \
+    "$out/unsafe_case/bin.c" -o "$out/unsafe_case/optimized"
+run_exit 42 "$out/unsafe_case/optimized"
+grep -q 'ptr.store' "$out/unsafe_case.ir"
+
 grep -q 'call @' "$out/main.ir"
 grep -q 'struct cc_m' "$out/main.ir"
 grep -q 'int main(void)' "$out/main.c"

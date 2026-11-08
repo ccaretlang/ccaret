@@ -1,0 +1,6 @@
+fn main() -> i32 {
+    let number = 42;
+    let ptr: *const i32 = &number;
+    unsafe { *ptr = 1; }
+    return number;
+}

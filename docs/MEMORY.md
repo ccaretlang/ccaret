@@ -11,11 +11,39 @@
 
 ## Raw pointers and unsafe
 
-Proposed forms: `*T`, `*const T`, `*volatile T`, `?*T`.
+The executable bootstrap subset implements `*T`, `*const T` and optional
+pointer values `?*T`. `*volatile T` remains a proposal, not executable code.
 
 A non-null raw pointer can still be dangling, out of bounds, misaligned or invalid. `*const T` stops writes through that pointer, but it does not prove exclusive ownership and does not prevent writes through another pointer.
 
-Operations whose safety cannot be checked need an `unsafe` context: forming an arbitrary address, dereferencing a raw pointer, pointer arithmetic, unchecked access, platform FFI. `unsafe` does not turn off type checking and adds no runtime cost.
+Currently `&local` takes the address of a named local binding (parentheses
+are allowed): `&var` yields `*T`, while `&let` yields `*const T`.
+Address-taking itself is allowed in safe code. Pointer copying, passing and
+returning are allowed; dereference reads and writes (`*p`, `*p = value`,
+`*p += value` for `i32`) require a lexical `unsafe { ... }` statement.
+`*const T` prevents stores *through that pointer*; `let p: *T` prevents
+rebinding `p` but not writing the mutable referent. Nested pointer types,
+structs, arrays and optional pointer values are supported where their
+component types are supported by the C17 backend.
+
+```caret
+fn main() -> i32 {
+    var number = 20;
+    let ptr: *i32 = &number;
+    unsafe { *ptr += 22; }
+    return number;
+}
+```
+
+**This is not memory safety:** `unsafe` only marks a lexically authorized
+operation; neither semantic analysis nor the IR verifier proves non-nullness,
+pointer provenance, ownership, aliasing, alignment or lifetime. Pointer
+escape can still produce dangling pointers (including returning `&local`).
+The programmer must ensure each dereference is valid. Address-of arbitrary
+expressions, pointer arithmetic, integer-to-pointer casts, allocation,
+volatile operations, slice conversion, FFI and `unsafe fn` are not supported.
+
+The following is a *future design sketch*, not currently valid executable C^:
 
 ```caret
 unsafe {

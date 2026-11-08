@@ -83,6 +83,19 @@ build_run struct_unit 42
 build_run struct_nominal 42
 build_run struct_condition 42
 build_run struct_mutation 42
+for case in ptr_basic ptr_const ptr_call ptr_bool ptr_nested \
+    ptr_struct ptr_array ptr_optional ptr_flow; do
+    build_run "$case" 42
+done
+
+"$binary" emit-ir "$root/tests/fixtures/build_ptr_basic.caret" \
+    -o "$out/ptr_basic.ir"
+grep -q 'addr.slot' "$out/ptr_basic.ir"
+grep -q 'ptr.load' "$out/ptr_basic.ir"
+grep -q 'ptr.store' "$out/ptr_basic.ir"
+grep -q '= \*i32' "$out/ptr_basic.ir"
+grep -q 'int32_t \*cc_t_' "$out/compiled_ptr_basic.c"
+grep -q 'const int32_t \*cc_t_' "$out/compiled_ptr_const.c"
 
 "$binary" emit-ir "$root/tests/fixtures/build_struct_copy.caret" \
     -o "$out/struct_copy.ir"
@@ -167,7 +180,9 @@ for case in hello call factorial while shortcircuit boolean \
     array_optional_write array_nested_write \
     struct_basic struct_copy struct_nested struct_empty struct_forward \
     struct_array struct_updates struct_unit struct_nominal \
-    struct_condition struct_mutation; do
+    struct_condition struct_mutation \
+    ptr_basic ptr_const ptr_call ptr_bool ptr_nested \
+    ptr_struct ptr_array ptr_optional ptr_flow; do
     gcc -std=c17 -O2 -Wall -Wextra -Wpedantic -Werror \
         "$out/compiled_$case.c" -o "$out/optimized_$case"
     case "$case" in
@@ -202,7 +217,8 @@ run_exit 42 "$out/@literal-name"
 for case in overflow divzero div_overflow neg_overflow \
     compound_overflow compound_divzero \
     array_negative_index array_oob_index array_empty_index \
-    array_oob_write array_empty_write struct_compound_overflow; do
+    array_oob_write array_empty_write struct_compound_overflow \
+    ptr_overflow; do
     "$binary" build "$root/tests/fixtures/build_$case.caret" \
         -o "$out/trap_$case"
     set +e
@@ -217,7 +233,8 @@ done
 
 for case in overflow compound_overflow compound_divzero \
     array_negative_index array_oob_index array_empty_index \
-    array_oob_write array_empty_write struct_compound_overflow; do
+    array_oob_write array_empty_write struct_compound_overflow \
+    ptr_overflow; do
     gcc -std=c17 -O2 -Wall -Wextra -Wpedantic -Werror \
         "$out/trap_$case.c" -o "$out/optimized_trap_$case"
     set +e
@@ -266,6 +283,21 @@ grep -q 'error: semantic: recursive struct value type' \
     "$out/struct_recursive.err"
 grep -q 'error: IR: IR backend currently supports only' \
     "$out/struct_unsupported_field.err"
+
+for case in ptr_unsafe_read_invalid ptr_const_store_invalid \
+    ptr_address_literal_invalid; do
+    if "$binary" build "$root/tests/fixtures/build_$case.caret" \
+        -o "$out/invalid_$case" > /dev/null 2> "$out/$case.err"; then
+        echo "build: invalid raw pointer case $case must fail" >&2
+        exit 1
+    fi
+done
+grep -q 'error: semantic: raw pointer dereference requires unsafe block' \
+    "$out/ptr_unsafe_read_invalid.err"
+grep -q 'error: semantic: cannot write through const raw pointer' \
+    "$out/ptr_const_store_invalid.err"
+grep -q 'error: semantic: address-of currently requires a named local' \
+    "$out/ptr_address_literal_invalid.err"
 
 if "$binary" build "$root/tests/fixtures/build_invalid_main.caret" \
     -o "$out/invalid_main" > /dev/null 2> "$out/invalid_main.err"; then

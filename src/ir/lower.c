@@ -18,6 +18,7 @@ struct LowerStruct {
 struct LowerVar {
     CcSourceSpan name;
     uint32_t slot;
+    bool mutable;
     LowerVar *next;
 };
 
@@ -85,9 +86,12 @@ static CcIrType intern_type(Lower *ctx, CcIrCompositeKind kind,
          info = info->next) {
         if (info->kind != kind) continue;
         if (kind == CC_IR_TYPE_STRUCT) continue;
-        if (kind == CC_IR_TYPE_OPTIONAL || kind == CC_IR_TYPE_ARRAY) {
+        if (kind == CC_IR_TYPE_OPTIONAL || kind == CC_IR_TYPE_ARRAY ||
+            kind == CC_IR_TYPE_POINTER) {
             if (info->inner == inner &&
-                (kind != CC_IR_TYPE_ARRAY || info->count == count))
+                (kind != CC_IR_TYPE_ARRAY || info->count == count) &&
+                (kind != CC_IR_TYPE_POINTER ||
+                 info->pointer_const == (count != 0)))
                 return info->id;
             continue;
         }
@@ -108,6 +112,8 @@ static CcIrType intern_type(Lower *ctx, CcIrCompositeKind kind,
     info->kind = kind;
     info->inner = inner;
     info->count = count;
+    info->pointer_const = kind == CC_IR_TYPE_POINTER && count != 0;
+    if (kind == CC_IR_TYPE_POINTER) info->count = 0;
     if (kind == CC_IR_TYPE_TUPLE && count != 0) {
         info->members = new_object(ctx, count * sizeof(*members), span);
         if (info->members == NULL) return CC_IR_NONE;
@@ -294,6 +300,20 @@ static bool type_of(Lower *ctx, const CcType *node, CcIrType *result,
                               node->span);
         return !ctx->failed;
     }
+    if (node->kind == CC_AST_TYPE_POINTER) {
+        CcIrType inner;
+        if (!type_of(ctx, node->pointer_inner, &inner, node->span))
+            return false;
+        if (inner == CC_IR_VOID) {
+            error_at(ctx, node->span,
+                     "IR lowering: void pointer unsupported");
+            return false;
+        }
+        *result = intern_type(ctx, CC_IR_TYPE_POINTER, inner,
+                              node->pointer_pointee_const ? 1U : 0U,
+                              NULL, node->span);
+        return !ctx->failed;
+    }
     if (node->kind == CC_AST_TYPE_TUPLE) {
         uint32_t count = 0;
         for (CcTupleTypeElement *part = node->tuple_elements; part != NULL;
@@ -387,12 +407,14 @@ static uint32_t make_slot(Lower *ctx, CcIrType type, CcSourceSpan span)
     return slot->id;
 }
 
-static bool bind_variable(Lower *ctx, CcSourceSpan name, uint32_t slot)
+static bool bind_variable(Lower *ctx, CcSourceSpan name, uint32_t slot,
+                          bool mutable)
 {
     LowerVar *variable = new_object(ctx, sizeof(*variable), name);
     if (variable == NULL) return false;
     variable->name = name;
     variable->slot = slot;
+    variable->mutable = mutable;
     variable->next = ctx->variables;
     ctx->variables = variable;
     return true;
@@ -914,6 +936,53 @@ static Value lower_expr(Lower *ctx, const CcExpression *expr,
         return optional;
     }
     case CC_AST_EXPRESSION_UNARY: {
+        if (expr->unary.operator == CC_AST_UNARY_OPERATOR_AMP) {
+            const CcExpression *target = expr->unary.operand;
+            while (target->kind == CC_AST_EXPRESSION_PARENTHESIZED)
+                target = target->parenthesized_inner;
+            if (target->kind != CC_AST_EXPRESSION_IDENTIFIER) {
+                error_at(ctx, expr->span,
+                         "IR lowering: address-of requires named local");
+                return no_value();
+            }
+            LowerVar *variable = find_variable(ctx, target->identifier_name);
+            if (variable == NULL) {
+                error_at(ctx, target->span,
+                         "IR lowering: unknown address-of variable");
+                return no_value();
+            }
+            CcIrType pointer_type = intern_type(ctx, CC_IR_TYPE_POINTER,
+                slot_type(ctx, variable->slot), variable->mutable ? 0 : 1,
+                NULL, expr->span);
+            if (ctx->failed || (expected != CC_IR_NONE &&
+                                expected != pointer_type)) {
+                error_at(ctx, expr->span,
+                         "IR lowering: address-of pointer type mismatch");
+                return no_value();
+            }
+            CcIrInstruction *node = NULL;
+            Value result = append(ctx, CC_IR_ADDR_SLOT, pointer_type,
+                                  expr->span, &node);
+            if (node != NULL) node->slot = variable->slot;
+            return result;
+        }
+        if (expr->unary.operator == CC_AST_UNARY_OPERATOR_STAR) {
+            Value pointer = lower_expr(ctx, expr->unary.operand, CC_IR_NONE);
+            if (ctx->failed) return no_value();
+            const CcIrTypeInfo *info =
+                cc_ir_type_info(ctx->module, pointer.type);
+            if (info == NULL || info->kind != CC_IR_TYPE_POINTER ||
+                (expected != CC_IR_NONE && info->inner != expected)) {
+                error_at(ctx, expr->span,
+                         "IR lowering: dereference requires matching pointer");
+                return no_value();
+            }
+            CcIrInstruction *node = NULL;
+            Value value = append(ctx, CC_IR_DEREF_PTR, info->inner,
+                                 expr->span, &node);
+            if (node != NULL) node->lhs = pointer.reg;
+            return value;
+        }
         if (expr->unary.operator == CC_AST_UNARY_OPERATOR_MINUS &&
             expr->unary.operand->kind == CC_AST_EXPRESSION_INTEGER_LITERAL &&
             !expr->unary.operand->integer_literal.overflow &&
@@ -1070,6 +1139,71 @@ static Value lower_expr(Lower *ctx, const CcExpression *expr,
     }
 }
 
+static bool compound_opcode(CcAssignmentOperator operator, CcIrOpcode *out);
+
+static bool lower_pointer_assignment(Lower *ctx, const CcStatement *node)
+{
+    const CcExpression *target = node->assignment.target;
+    Value pointer = lower_expr(ctx, target->unary.operand, CC_IR_NONE);
+    if (ctx->failed) return false;
+    const CcIrTypeInfo *info =
+        cc_ir_type_info(ctx->module, pointer.type);
+    if (info == NULL || info->kind != CC_IR_TYPE_POINTER ||
+        info->pointer_const) {
+        error_at(ctx, target->span,
+                 "IR lowering: pointer store requires mutable pointee");
+        return false;
+    }
+    CcIrType inner = info->inner;
+    uint32_t pointer_slot = make_slot(ctx, pointer.type, target->span);
+    if (ctx->failed || !store(ctx, pointer_slot, pointer, target->span))
+        return false;
+    bool compound = node->assignment.operator != CC_AST_ASSIGNMENT_ASSIGN;
+    uint32_t old_slot = CC_IR_NONE;
+    CcIrOpcode opcode = CC_IR_ADD;
+    if (compound) {
+        if (inner != CC_IR_I32 ||
+            !compound_opcode(node->assignment.operator, &opcode)) {
+            error_at(ctx, target->span,
+                     "IR lowering: compound pointer store requires i32");
+            return false;
+        }
+        CcIrInstruction *read = NULL;
+        Value old = append(ctx, CC_IR_DEREF_PTR, inner,
+                           target->span, &read);
+        if (read == NULL) return false;
+        read->lhs = pointer.reg;
+        old_slot = make_slot(ctx, inner, target->span);
+        if (ctx->failed || !store(ctx, old_slot, old, target->span))
+            return false;
+    }
+    Value rhs = lower_expr(ctx, node->assignment.value, inner);
+    if (ctx->failed || rhs.type != inner) {
+        error_at(ctx, node->span,
+                 "IR lowering: pointer store type mismatch");
+        return false;
+    }
+    if (compound) {
+        Value old = load(ctx, old_slot, node->span);
+        if (ctx->failed) return false;
+        CcIrInstruction *operation = NULL;
+        Value combined = append(ctx, opcode, CC_IR_I32,
+                                node->span, &operation);
+        if (operation == NULL) return false;
+        operation->lhs = old.reg;
+        operation->rhs = rhs.reg;
+        rhs = combined;
+    }
+    pointer = load(ctx, pointer_slot, node->span);
+    if (ctx->failed) return false;
+    CcIrInstruction *write = NULL;
+    append(ctx, CC_IR_STORE_PTR, CC_IR_VOID, node->span, &write);
+    if (write == NULL) return false;
+    write->lhs = pointer.reg;
+    write->rhs = rhs.reg;
+    return true;
+}
+
 static bool lower_block(Lower *ctx, const CcBlock *block, bool scope);
 
 static bool lower_if(Lower *ctx, const CcIf *node)
@@ -1094,16 +1228,18 @@ static bool lower_if(Lower *ctx, const CcIf *node)
     return !ctx->failed;
 }
 
-static bool lower_pattern(Lower *ctx, const CcPattern *pattern, Value value)
+static bool lower_pattern(Lower *ctx, const CcPattern *pattern, Value value,
+                          bool mutable)
 {
     switch (pattern->kind) {
     case CC_AST_PATTERN_NAME: {
         uint32_t slot = make_slot(ctx, value.type, pattern->span);
         return !ctx->failed && store(ctx, slot, value, pattern->span) &&
-               bind_variable(ctx, pattern->name, slot);
+               bind_variable(ctx, pattern->name, slot, mutable);
     }
     case CC_AST_PATTERN_PARENTHESIZED:
-        return lower_pattern(ctx, pattern->parenthesized_inner, value);
+        return lower_pattern(ctx, pattern->parenthesized_inner, value,
+                             mutable);
     case CC_AST_PATTERN_TUPLE: {
         const CcIrTypeInfo *info = cc_ir_type_info(ctx->module, value.type);
         if (info == NULL || info->kind != CC_IR_TYPE_TUPLE) {
@@ -1125,7 +1261,8 @@ static bool lower_pattern(Lower *ctx, const CcPattern *pattern, Value value)
             if (instruction == NULL) return false;
             instruction->lhs = value.reg;
             instruction->slot = index;
-            if (!lower_pattern(ctx, part->pattern, element)) return false;
+            if (!lower_pattern(ctx, part->pattern, element, mutable))
+                return false;
             index++;
         }
         if (index != info->count) {
@@ -1326,7 +1463,8 @@ static bool lower_statement(Lower *ctx, const CcStatement *node)
             return false;
         }
         return !ctx->failed &&
-               lower_pattern(ctx, node->let.pattern, value);
+               lower_pattern(ctx, node->let.pattern, value,
+                             node->let.mutable);
     }
     case CC_AST_STATEMENT_RETURN: {
         Value value = no_value();
@@ -1349,6 +1487,10 @@ static bool lower_statement(Lower *ctx, const CcStatement *node)
         return !ctx->failed;
     }
     case CC_AST_STATEMENT_ASSIGNMENT: {
+        if (node->assignment.target->kind == CC_AST_EXPRESSION_UNARY &&
+            node->assignment.target->unary.operator ==
+                CC_AST_UNARY_OPERATOR_STAR)
+            return lower_pointer_assignment(ctx, node);
         if (node->assignment.target->kind == CC_AST_EXPRESSION_MEMBER)
             return lower_field_assignment(ctx, node);
         if (node->assignment.target->kind == CC_AST_EXPRESSION_INDEX)
@@ -1403,6 +1545,8 @@ static bool lower_statement(Lower *ctx, const CcStatement *node)
     }
     case CC_AST_STATEMENT_IF:
         return lower_if(ctx, node->if_statement);
+    case CC_AST_STATEMENT_UNSAFE:
+        return lower_block(ctx, node->unsafe_block, true);
     case CC_AST_STATEMENT_WHILE: {
         CcIrBlock *head = new_block(ctx, node->span);
         CcIrBlock *body = new_block(ctx, node->span);
@@ -1488,7 +1632,8 @@ static bool lower_statement(Lower *ctx, const CcStatement *node)
         branch(ctx, condition, body, exit, node->span);
 
         LowerVar *saved_variables = ctx->variables;
-        if (!bind_variable(ctx, for_node->name, index_slot)) return false;
+        if (!bind_variable(ctx, for_node->name, index_slot, false))
+            return false;
         LowerLoop loop = { exit->id, increment->id, ctx->loop };
         ctx->loop = &loop;
         ctx->current = body;
@@ -1637,7 +1782,7 @@ bool cc_ir_lower(const CcSourceFile *file,
         ctx.loop = NULL;
         uint32_t index = 0;
         for (CcParameter *p = decl->parameters; p != NULL; p = p->next)
-            if (!bind_variable(&ctx, p->name, index++)) return false;
+            if (!bind_variable(&ctx, p->name, index++, false)) return false;
         ctx.current = new_block(&ctx, decl->span);
         if (ctx.failed || !lower_block(&ctx, decl->body, false)) return false;
         if (!ctx.current->terminated) {

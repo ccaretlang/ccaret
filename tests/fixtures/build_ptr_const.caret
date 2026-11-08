@@ -1,0 +1,10 @@
+fn read(ptr: *const i32) -> i32 {
+    unsafe {
+        return *ptr;
+    }
+}
+
+fn main() -> i32 {
+    let value = 42;
+    return read(&value);
+}

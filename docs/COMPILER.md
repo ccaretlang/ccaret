@@ -10,7 +10,7 @@ using `i32`, `bool`, `void`, nested tuple values and optional
 `?T` construction/propagation, `i32` bitwise and wrapping arithmetic,
 checked compound updates, integer `for` ranges, fixed arrays `[N]T`
 with checked indexing, nominal struct values and locally imported
-`pub` functions/structs
+`pub` functions/structs and scoped raw-pointer `unsafe` operations
 can become GCC-compiled executables. The frontend supports additional
 syntax and types that are **not yet lowerable**, including optional
 unwrapping/pattern matching. See

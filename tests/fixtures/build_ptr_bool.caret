@@ -1,0 +1,11 @@
+fn main() -> i32 {
+    var flag = false;
+    let ptr = &flag;
+    unsafe {
+        *ptr = true;
+        if *ptr {
+            return 42;
+        }
+    }
+    return 0;
+}

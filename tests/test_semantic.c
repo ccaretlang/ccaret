@@ -182,7 +182,21 @@ static void test_valid_programs(void)
         "fn f() { let arr: [1]P = [P { child: none }]; }",
         "struct One { value: i32 } struct Two { value: i32 }"
         "fn a(value: One) -> i32 { return value.value; }"
-        "fn b(value: Two) -> i32 { return value.value; }"
+        "fn b(value: Two) -> i32 { return value.value; }",
+        "fn f() -> i32 { var n = 42; let p = &n;"
+        " unsafe { return *p; } }",
+        "fn f() -> i32 { let n = 42; let p: *const i32 = &n;"
+        " unsafe { return *p; } }",
+        "fn f(p: *i32) -> i32 { unsafe { *p += 2; return *p; } }",
+        "fn f() { var n: i32 = 1; let p: *i32 = &n;"
+        " unsafe { *p = 2; *p *= 3; } }",
+        "fn f() { let flag: bool = true; let p = &flag;"
+        " unsafe { let b = *p; } }",
+        "fn f() { var n = 1; let p = &n; let pp = &p;"
+        " unsafe { let value = **pp; } }",
+        "fn f() -> ?*i32 { var x = 1; return some(&x); }",
+        "fn f() { var n: i32 = 3; unsafe { while n < 4 {"
+        " let p = &n; *p += 1; } } }"
     };
 
     for (size_t i = 0; i < sizeof(programs) / sizeof(programs[0]); i++)
@@ -252,7 +266,31 @@ static void test_invalid_programs(void)
         { "fn f() -> u64 { return 18446744073709551616; }",
           "integer literal exceeds 64 bits", "18446744073709551616" },
         { "fn f(p: *i32) -> i32 { return *p; }",
-          "raw pointer operations are not yet checked", "*p" },
+          "raw pointer dereference requires unsafe block", "*p" },
+        { "fn f() { var n = 1; let p = &n; *p = 3; }",
+          "raw pointer write requires unsafe block", "*p" },
+        { "fn f() { var n = 1; let p = &n; let x = *p; }",
+          "raw pointer dereference requires unsafe block", "*p" },
+        { "fn f() { let n = 1; let p = &n; unsafe { *p = 2; } }",
+          "cannot write through const raw pointer", "*p" },
+        { "fn f() { var n = 1; let p: *const i32 = &n; }",
+          "type mismatch", "&n" },
+        { "fn f() { let p = &1; }",
+          "address-of currently requires a named local", "1" },
+        { "fn f() { let p = &missing; }",
+          "undefined name", "missing" },
+        { "fn f() { unsafe { let n = 1; let p = &n;"
+          " *p = 4; } }",
+          "cannot write through const raw pointer", "*p" },
+        { "fn f() { unsafe { let n = 1; let p = &n;"
+          " *p += 1; } }",
+          "cannot write through const raw pointer", "*p" },
+        { "fn f() { unsafe { let n = 1; let p = &n;"
+          " let wrong = *1; } }",
+          "dereference requires raw pointer", "*1" },
+        { "fn f() { unsafe { var n: bool = true; let p = &n;"
+          " *p += false; } }",
+          "compound pointer assignment requires numeric pointee", "*p" },
         { "fn f() { break; }", "break or continue outside a loop", "break;" },
         { "fn f() { continue; }",
           "break or continue outside a loop", "continue;" },

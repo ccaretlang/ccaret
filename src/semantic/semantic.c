@@ -96,6 +96,7 @@ typedef struct {
     SemVariable *variables;
     unsigned int depth;
     unsigned int loop_depth;
+    unsigned int unsafe_depth;
     bool failed;
 } SemContext;
 
@@ -938,10 +939,39 @@ static SemType *check_expr(SemContext *ctx, const CcExpression *expr,
     case CC_AST_EXPRESSION_UNARY: {
         CcUnaryOperator op = expr->unary.operator;
 
-        if (op == CC_AST_UNARY_OPERATOR_AMP ||
-            op == CC_AST_UNARY_OPERATOR_STAR) {
-            fail(ctx, expr->span, "raw pointer operations are not yet checked");
-            return NULL;
+        if (op == CC_AST_UNARY_OPERATOR_AMP) {
+            const CcExpression *target = expr->unary.operand;
+            while (target->kind == CC_AST_EXPRESSION_PARENTHESIZED)
+                target = target->parenthesized_inner;
+            if (target->kind != CC_AST_EXPRESSION_IDENTIFIER) {
+                fail(ctx, target->span,
+                     "address-of currently requires a named local");
+                return NULL;
+            }
+            SemVariable *local = find_variable(ctx, target->identifier_name);
+            if (local == NULL) {
+                fail(ctx, target->span, "undefined name");
+                return NULL;
+            }
+            SemType *pointer = new_type(ctx, SEM_POINTER, expr->span);
+            if (pointer == NULL) return NULL;
+            pointer->inner = local->type;
+            pointer->is_const = !local->mutable;
+            return coerce(ctx, pointer, expected, expr->span);
+        }
+        if (op == CC_AST_UNARY_OPERATOR_STAR) {
+            if (ctx->unsafe_depth == 0) {
+                fail(ctx, expr->span,
+                     "raw pointer dereference requires unsafe block");
+                return NULL;
+            }
+            SemType *pointer = check_expr(ctx, expr->unary.operand, NULL);
+            if (pointer == NULL) return NULL;
+            if (pointer->kind != SEM_POINTER) {
+                fail(ctx, expr->span, "dereference requires raw pointer");
+                return NULL;
+            }
+            return coerce(ctx, pointer->inner, expected, expr->span);
         }
 
         if (op == CC_AST_UNARY_OPERATOR_NOT) {
@@ -1182,6 +1212,35 @@ static bool check_statement(SemContext *ctx, const CcStatement *statement)
     case CC_AST_STATEMENT_ASSIGNMENT: {
         const CcExpression *target = statement->assignment.target;
 
+        if (target->kind == CC_AST_EXPRESSION_UNARY &&
+            target->unary.operator == CC_AST_UNARY_OPERATOR_STAR) {
+            if (ctx->unsafe_depth == 0) {
+                fail(ctx, target->span,
+                     "raw pointer write requires unsafe block");
+                return false;
+            }
+            SemType *pointer = check_expr(ctx, target->unary.operand, NULL);
+            if (pointer == NULL) return false;
+            if (pointer->kind != SEM_POINTER) {
+                fail(ctx, target->span, "dereference requires raw pointer");
+                return false;
+            }
+            if (pointer->is_const) {
+                fail(ctx, target->span,
+                     "cannot write through const raw pointer");
+                return false;
+            }
+            if (statement->assignment.operator != CC_AST_ASSIGNMENT_ASSIGN &&
+                (pointer->inner->kind != SEM_INTEGER &&
+                 pointer->inner->kind != SEM_FLOAT)) {
+                fail(ctx, target->span,
+                     "compound pointer assignment requires numeric pointee");
+                return false;
+            }
+            return check_expr(ctx, statement->assignment.value,
+                              pointer->inner) != NULL;
+        }
+
         if (target->kind == CC_AST_EXPRESSION_MEMBER &&
             target->member.operand->kind == CC_AST_EXPRESSION_IDENTIFIER) {
             SemVariable *base =
@@ -1295,6 +1354,12 @@ static bool check_statement(SemContext *ctx, const CcStatement *statement)
     }
     case CC_AST_STATEMENT_IF:
         return check_if(ctx, statement->if_statement);
+    case CC_AST_STATEMENT_UNSAFE: {
+        ctx->unsafe_depth++;
+        bool ok = check_block(ctx, statement->unsafe_block, true);
+        ctx->unsafe_depth--;
+        return ok;
+    }
     case CC_AST_STATEMENT_WHILE: {
         SemType *boolean = builtin(ctx, PRIM_BOOL,
                                    statement->while_statement->condition->span);
@@ -1388,6 +1453,9 @@ static bool block_guarantees_return(const CcBlock *block)
         if (stmt->kind == CC_AST_STATEMENT_RETURN) return true;
         if (stmt->kind == CC_AST_STATEMENT_IF &&
             if_guarantees_return(stmt->if_statement))
+            return true;
+        if (stmt->kind == CC_AST_STATEMENT_UNSAFE &&
+            block_guarantees_return(stmt->unsafe_block))
             return true;
     }
 
@@ -1502,6 +1570,7 @@ bool cc_semantic_check(const CcSourceFile *file,
         ctx.variables = NULL;
         ctx.depth = 1;
         ctx.loop_depth = 0;
+        ctx.unsafe_depth = 0;
 
         for (SemParameter *param = function->parameters; param != NULL;
              param = param->next) {

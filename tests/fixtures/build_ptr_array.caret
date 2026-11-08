@@ -1,0 +1,11 @@
+fn set_all(ptr: *[2]i32) {
+    unsafe {
+        *ptr = [20, 22];
+    }
+}
+
+fn main() -> i32 {
+    var array: [2]i32 = [0, 0];
+    set_all(&array);
+    return array[0] + array[1];
+}

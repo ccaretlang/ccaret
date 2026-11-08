@@ -1,0 +1,13 @@
+struct Pair { x: i32, y: i32 }
+
+fn copy(ptr: *const Pair) -> Pair {
+    unsafe {
+        return *ptr;
+    }
+}
+
+fn main() -> i32 {
+    let pair = Pair { x: 20, y: 22 };
+    let duplicate = copy(&pair);
+    return duplicate.x + duplicate.y;
+}

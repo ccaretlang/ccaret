@@ -1326,6 +1326,23 @@ static CcBlock *parse_block(CcParser *parser)
             continue;
         }
 
+        if (parser->current.kind == CC_TOKEN_KW_UNSAFE) {
+            CcToken keyword = parser->current;
+            advance(parser);
+            CcBlock *body = parse_block(parser);
+            if (parser->failed || body == NULL) break;
+            CcStatement *statement = allocate(parser, sizeof(*statement));
+            if (statement == NULL) break;
+            statement->kind = CC_AST_STATEMENT_UNSAFE;
+            statement->span = keyword.span;
+            statement->span.end = body->span.end;
+            statement->unsafe_block = body;
+            statement->next = NULL;
+            *link = statement;
+            link = &statement->next;
+            continue;
+        }
+
         CcExpression *expression = parse_expression(parser);
 
         if (parser->failed || expression == NULL) break;

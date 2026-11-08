@@ -66,11 +66,18 @@ entry point is `fn main() -> i32`.
   resolution checks explicit names and visibility before lowering. One
   canonical linked source unit passes through the same verified IR and
   C17 emitter.
+- Raw pointer types `*T` and `*const T`, including pointers to supported
+  composite values, pointer parameters/returns and optional pointers.
+  `&local` forms a pointer to an existing local slot, with `let` producing
+  a read-only pointee and `var` a writable one. `*p` reads and direct
+  `*p = value` / `*p += value` (checked `i32` compounds) require a source
+  `unsafe { ... }` statement. Dereference checks are static type checks,
+  not runtime null, bounds, provenance or lifetime checks.
 - Arguments are lowered left-to-right before the C function call, so the
   generated C's unspecified argument evaluation order has no effect.
   Tuple elements are similarly sequenced before construction.
 
-Composite IR type IDs map to deterministic C17 `typedef struct` types
+Composite IR type IDs map to deterministic C17 typedefs
 (`cc_t_3`, `cc_t_4`, etc.) in dependency order. Tuple elements use
 `f0`, `f1`, ... fields; a zero-element tuple has a dummy byte because
 empty structs are not standard C17. Optionals use a `bool has` tag and a
@@ -80,7 +87,10 @@ C17. Array lengths are limited to 65536 in this bootstrap backend.
 Nominal structs use one C17 typedef per declaration, with deterministic
 `f0`, `f1`, ... fields in source declaration order; empty structs
 also have a dummy byte. Struct types are emitted after their dependencies.
-This is an **internal implementation layout**, not
+Raw pointer types use corresponding C pointer typedefs (`T *` or
+`const T *`), and pointer temporaries are initialized to `NULL`.
+The generated code does not perform lifetime or null checks before
+dereferencing. This is an **internal implementation layout**, not
 a stable language or foreign-function ABI.
 
 The C runtime helpers use `int64_t` arithmetic and checks before converting
@@ -98,7 +108,8 @@ wrapping/cast decisions remain open.
 
 ## Not yet supported by the backend
 
-Slices, pointers, floating-point values, enums, unions, type aliases,
+Slices, pointer arithmetic/casts/volatile pointers, floating-point values,
+enums, unions, type aliases,
 signed shifts (`<<`, `>>`, `<<=`, `>>=`) and multi-width integer
 arithmetic have not yet been lowered. Signed right-shift semantics
 are still open in the language specification. Optional
@@ -108,7 +119,8 @@ arbitrary `usize` arithmetic and indexed targets other than a named
 mutable array local are not yet supported.
 Nested struct field writes (`object.child.value = x`) are not yet
 supported; directly assigned struct fields must belong to a `var`
-local. Recursive struct value types are disallowed. Modules currently
+local. Recursive struct value types and recursive struct-through-pointer
+types are currently disallowed. Modules currently
 use one source file per dotted path and a root inferred from the entry
 filename. Imported public structs require all fields to be `pub`;
 opaque imported structs, import re-exports, package search roots and
@@ -135,6 +147,9 @@ array-of-array/tuple/optional values, reads/writes, bounds traps and
 noncanonical or corrupted IR. Nominal struct tests cover field order,
 copies, forward references, parameters/returns, nested aggregates,
 field writes, checked overflow traps and invalid declarations.
+Pointer tests exercise `*const`, nested pointers, composite pointees,
+optionals, function calls, CFG-sensitive pointer stores, type/IR mutation
+rejection and checked-overflow aborts under optimized GCC.
 The IR unit suite
 deliberately mutates valid IR to test refusal of malformed instructions,
 types, constructors, projections and terminators.

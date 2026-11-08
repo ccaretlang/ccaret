@@ -77,7 +77,8 @@ typedef enum {
     CC_AST_STATEMENT_BREAK,
     CC_AST_STATEMENT_CONTINUE,
     CC_AST_STATEMENT_LOOP,
-    CC_AST_STATEMENT_FOR
+    CC_AST_STATEMENT_FOR,
+    CC_AST_STATEMENT_UNSAFE
 } CcStatementKind;
 
 typedef enum {
@@ -275,6 +276,7 @@ struct CcStatement {
         CcWhile *while_statement;
         CcLoop *loop_statement;
         CcFor *for_statement;
+        CcBlock *unsafe_block;
     };
 };
 

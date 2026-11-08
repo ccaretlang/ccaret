@@ -52,6 +52,9 @@ static const char *op_name(CcIrOpcode op)
     case CC_IR_MAKE_STRUCT: return "struct";
     case CC_IR_GET_STRUCT: return "struct.get";
     case CC_IR_SET_FIELD: return "struct.set";
+    case CC_IR_ADDR_SLOT: return "addr.slot";
+    case CC_IR_DEREF_PTR: return "ptr.load";
+    case CC_IR_STORE_PTR: return "ptr.store";
     }
     return "invalid";
 }
@@ -67,6 +70,10 @@ bool cc_ir_print(FILE *out, const CcIrModule *module)
             print_type(out, type->inner);
         } else if (type->kind == CC_IR_TYPE_ARRAY) {
             fprintf(out, "[%u]", type->count);
+            print_type(out, type->inner);
+        } else if (type->kind == CC_IR_TYPE_POINTER) {
+            fputc('*', out);
+            if (type->pointer_const) fputs("const ", out);
             print_type(out, type->inner);
         } else if (type->kind == CC_IR_TYPE_STRUCT) {
             CcSourceSpan name = type->name;
@@ -122,9 +129,14 @@ bool cc_ir_print(FILE *out, const CcIrModule *module)
                     fprintf(out, " %" PRIu64, i->wide_constant);
                     break;
                 case CC_IR_LOAD:
+                case CC_IR_ADDR_SLOT:
                     fprintf(out, " slot%u", i->slot); break;
                 case CC_IR_STORE:
                     fprintf(out, " slot%u, %%%u", i->slot, i->lhs); break;
+                case CC_IR_DEREF_PTR:
+                    fprintf(out, " %%%u", i->lhs); break;
+                case CC_IR_STORE_PTR:
+                    fprintf(out, " *%%%u = %%%u", i->lhs, i->rhs); break;
                 case CC_IR_NEG:
                 case CC_IR_NOT:
                 case CC_IR_BIT_NOT:

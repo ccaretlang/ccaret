@@ -696,6 +696,101 @@ static void test_nominal_and_forward_struct_types(void)
     fixture_destroy(&f);
 }
 
+static void test_pointer_ir_and_verifier(void)
+{
+    Fixture f;
+    fixture_init(&f,
+        "fn main() -> i32 {"
+        " let constant: i32 = 20; var value: i32 = 22;"
+        " let cp: *const i32 = &constant; let p: *i32 = &value;"
+        " unsafe { *p = *cp + *p; } return value; }");
+    lower(&f);
+    CcIrTypeInfo *readonly = f.module->types;
+    CcIrTypeInfo *writable = readonly != NULL ? readonly->next : NULL;
+    assert(readonly && writable);
+    assert(readonly->kind == CC_IR_TYPE_POINTER && readonly->pointer_const);
+    assert(writable->kind == CC_IR_TYPE_POINTER && !writable->pointer_const);
+    assert(readonly->inner == CC_IR_I32 && writable->inner == CC_IR_I32);
+    CcIrFunction *fn = f.module->functions;
+    CcIrInstruction *address = find_instruction(fn, CC_IR_ADDR_SLOT);
+    CcIrInstruction *read = find_instruction(fn, CC_IR_DEREF_PTR);
+    CcIrInstruction *write = find_instruction(fn, CC_IR_STORE_PTR);
+    assert(address != NULL && read != NULL && write != NULL);
+
+    FILE *out = tmpfile();
+    assert(out != NULL && cc_ir_print(out, f.module));
+    rewind(out);
+    char printed[16384];
+    size_t n = fread(printed, 1, sizeof(printed) - 1, out);
+    printed[n] = '\0';
+    assert(strstr(printed, "= *const i32") != NULL);
+    assert(strstr(printed, "= *i32") != NULL);
+    assert(strstr(printed, "addr.slot") != NULL);
+    assert(strstr(printed, "ptr.load") != NULL);
+    assert(strstr(printed, "ptr.store") != NULL);
+    assert(fclose(out) == 0);
+
+    uint32_t saved_slot = address->slot;
+    address->slot = fn->slot_count;
+    expect_invalid(f.module, "IR verifier: invalid address-of local slot");
+    address->slot = saved_slot;
+    CcIrType saved_type = address->type;
+    address->type = CC_IR_BOOL;
+    expect_invalid(f.module, "IR verifier: invalid address-of local slot");
+    address->type = saved_type;
+    saved_type = read->type;
+    read->type = CC_IR_BOOL;
+    expect_invalid(f.module, "IR verifier: invalid raw pointer read");
+    read->type = saved_type;
+    uint32_t saved_lhs = read->lhs;
+    read->lhs = CC_IR_NONE;
+    expect_invalid(f.module, "IR verifier: invalid raw pointer read");
+    read->lhs = saved_lhs;
+    uint32_t saved_rhs = write->rhs;
+    write->rhs = CC_IR_NONE;
+    expect_invalid(f.module, "IR verifier: invalid raw pointer write");
+    write->rhs = saved_rhs;
+    saved_lhs = write->lhs;
+    /* The first dereference reads *cp, so its source is a *const i32. */
+    write->lhs = read->lhs;
+    expect_invalid(f.module, "IR verifier: invalid raw pointer write");
+    write->lhs = saved_lhs;
+    write->lhs = CC_IR_NONE;
+    expect_invalid(f.module, "IR verifier: invalid raw pointer write");
+    write->lhs = saved_lhs;
+    saved_type = write->type;
+    write->type = CC_IR_I32;
+    expect_invalid(f.module, "IR verifier: invalid result register");
+    write->type = saved_type;
+
+    uint32_t saved_count = readonly->count;
+    readonly->count = 1;
+    expect_invalid(f.module, "IR verifier: invalid raw pointer type");
+    readonly->count = saved_count;
+    saved_type = readonly->inner;
+    readonly->inner = readonly->id;
+    expect_invalid(f.module, "IR verifier: invalid raw pointer type");
+    readonly->inner = saved_type;
+    readonly->pointer_const = false;
+    expect_invalid(f.module, "IR verifier: duplicate composite type");
+    readonly->pointer_const = true;
+    CcIrTypeInfo duplicate = *readonly;
+    duplicate.id = f.module->type_count;
+    duplicate.next = NULL;
+    writable->next = &duplicate;
+    f.module->type_count++;
+    expect_invalid(f.module, "IR verifier: duplicate composite type");
+    f.module->type_count--;
+    writable->next = NULL;
+
+    CcIrError error;
+    assert(cc_ir_verify(f.module, &error));
+    out = tmpfile();
+    assert(out != NULL && cc_c_emit(out, f.module, &error));
+    assert(fclose(out) == 0);
+    fixture_destroy(&f);
+}
+
 static void test_explicit_unsupported(void)
 {
     Fixture f;
@@ -741,6 +836,7 @@ int main(void)
     test_array_ir_and_verifier();
     test_struct_ir_and_verifier();
     test_nominal_and_forward_struct_types();
+    test_pointer_ir_and_verifier();
     test_explicit_unsupported();
     test_bad_inputs();
     puts("IR: all tests passed");

@@ -10,8 +10,8 @@ The first version now uses a typed, basic-block, non-SSA IR. Each function
 has typed parameters, local slots, temporaries, basic blocks and explicit
 terminators. Lowering supports `i32`, `bool`, `void`, a restricted `usize`,
 structural tuples (including zero- and one-element tuples), optional `?T`
-values, fixed arrays `[N]T` and nominal `struct` values, including
-nested aggregate types.
+values, fixed arrays `[N]T`, nominal `struct` values and raw pointer
+types `*T` / `*const T`, including nested aggregate types.
 Other source types still fail explicitly at IR
 lowering. SSA can be added later if measurements show it is worthwhile.
 
@@ -50,6 +50,7 @@ implemented yet.
 | Arithmetic | Checked `add`, `sub`, `mul`, `div`, `mod`, unary `neg`; `add.wrap`, `sub.wrap`, `mul.wrap` for `i32` |
 | Logic | `not`, `bit.not`, `bit.and`, `bit.or`, `bit.xor`, equality and ordered comparisons |
 | Locals | `load`, `store` with typed slots |
+| Raw pointers | `addr.slot` (local address), `ptr.load` and `ptr.store` (dereference/write) |
 | Aggregates | `tuple`/`tuple.get`, `array` (construct), `array.get` (checked index), `array.store` (checked mutable local write); `struct`/`struct.get`/`struct.set` (named field values) |
 | Tagged values | `some`, `none` (construct optional values) |
 | Calls | Direct `call`, including aggregate parameters and results |
@@ -88,6 +89,15 @@ of a typed local struct slot, with `i32` compound updates lowered
 through checked arithmetic. The verifier independently validates
 nominal names, field names, member type dependencies, operand types
 and field indices. Recursive by-value struct graphs are rejected.
+
+Raw pointer types are interned by pointee type and `const` qualifier;
+their pointee type must already be defined. Address-of emits `addr.slot`,
+reads use `ptr.load` and writes use `ptr.store`, with typed operands and
+results. Compound pointer writes preserve the pointer and old value across
+RHS control-flow changes. The verifier checks slot/pointee agreement,
+register validity and store permission through `*const` pointers; it does
+**not** track the source lexical `unsafe` region or verify pointer validity,
+address lifetime or ownership. `unsafe` enforcement is a semantic-stage rule.
 Optional unwrapping, `match`, `try`, `defer`, and their control-flow
 lowerings remain future work. Boolean short-circuiting appears explicitly
 in the CFG. Traps must not become C undefined behavior.

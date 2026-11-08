@@ -97,6 +97,43 @@ static bool validate_instruction(const CcIrModule *module,
             !USE(i->lhs, slots[i->slot]))
             return fail(error, i->span, "IR verifier: bad store");
         break;
+    case CC_IR_ADDR_SLOT: {
+        const CcIrTypeInfo *pointer = cc_ir_type_info(module, i->type);
+        if (pointer == NULL || pointer->kind != CC_IR_TYPE_POINTER ||
+            i->slot >= slot_count || pointer->inner != slots[i->slot])
+            return fail(error, i->span,
+                        "IR verifier: invalid address-of local slot");
+        break;
+    }
+    case CC_IR_DEREF_PTR: {
+        if (i->lhs >= register_count || !defined[i->lhs])
+            return fail(error, i->span,
+                        "IR verifier: invalid raw pointer read");
+        CcIrType pointer_type = types[i->lhs];
+        const CcIrTypeInfo *pointer =
+            cc_ir_type_info(module, pointer_type);
+        if (pointer == NULL || pointer->kind != CC_IR_TYPE_POINTER ||
+            pointer->inner != i->type ||
+            !USE(i->lhs, pointer_type))
+            return fail(error, i->span,
+                        "IR verifier: invalid raw pointer read");
+        break;
+    }
+    case CC_IR_STORE_PTR: {
+        if (i->type != CC_IR_VOID || i->lhs >= register_count ||
+            !defined[i->lhs])
+            return fail(error, i->span,
+                        "IR verifier: invalid raw pointer write");
+        CcIrType pointer_type = types[i->lhs];
+        const CcIrTypeInfo *pointer =
+            cc_ir_type_info(module, pointer_type);
+        if (pointer == NULL || pointer->kind != CC_IR_TYPE_POINTER ||
+            pointer->pointer_const || !USE(i->lhs, pointer_type) ||
+            !USE(i->rhs, pointer->inner))
+            return fail(error, i->span,
+                        "IR verifier: invalid raw pointer write");
+        break;
+    }
     case CC_IR_NEG:
     case CC_IR_NOT:
     case CC_IR_BIT_NOT: {
@@ -291,9 +328,18 @@ bool cc_ir_verify(const CcIrModule *module, CcIrError *error)
             (type->kind != CC_IR_TYPE_TUPLE &&
              type->kind != CC_IR_TYPE_OPTIONAL &&
              type->kind != CC_IR_TYPE_ARRAY &&
-             type->kind != CC_IR_TYPE_STRUCT))
+             type->kind != CC_IR_TYPE_STRUCT &&
+             type->kind != CC_IR_TYPE_POINTER))
             return fail(error, error->span, "IR verifier: invalid type table");
-        if (type->kind == CC_IR_TYPE_OPTIONAL) {
+        if (type->kind == CC_IR_TYPE_POINTER) {
+            if (type->inner == CC_IR_VOID ||
+                (type->inner >= type->id &&
+                 type->inner != CC_IR_USIZE) ||
+                type->count != 0 || type->members != NULL ||
+                type->field_names != NULL)
+                return fail(error, error->span,
+                            "IR verifier: invalid raw pointer type");
+        } else if (type->kind == CC_IR_TYPE_OPTIONAL) {
             if (type->count != 0 || type->members != NULL ||
                 type->field_names != NULL ||
                 type->inner == CC_IR_VOID ||
@@ -347,7 +393,12 @@ bool cc_ir_verify(const CcIrModule *module, CcIrError *error)
         for (const CcIrTypeInfo *other = module->types; other != type;
              other = other->next) {
             if (type->kind != other->kind) continue;
-            if (type->kind == CC_IR_TYPE_OPTIONAL ||
+            if (type->kind == CC_IR_TYPE_POINTER) {
+                if (type->inner == other->inner &&
+                    type->pointer_const == other->pointer_const)
+                    return fail(error, error->span,
+                                "IR verifier: duplicate composite type");
+            } else if (type->kind == CC_IR_TYPE_OPTIONAL ||
                 type->kind == CC_IR_TYPE_ARRAY) {
                 if (type->inner == other->inner &&
                     (type->kind != CC_IR_TYPE_ARRAY ||

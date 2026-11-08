@@ -1,0 +1,9 @@
+fn main() -> i32 {
+    var number = 20;
+    let ptr = &number;
+    let indirect = &ptr;
+    unsafe {
+        **indirect += 22;
+    }
+    return number;
+}

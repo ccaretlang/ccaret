@@ -37,6 +37,9 @@ Statements, expressions, patterns, types, generics and attributes need a full gr
 - `expr = expr;`, compound assignments, expression statements.
 - `return expr;`, `return;`, `break;`, `continue;`.
 - `if`, `while`, `for name in range`, `loop`, `match`, nested blocks.
+- In the executable subset, `unsafe { statement* }` is a scoped statement
+  (nesting is allowed), not a value expression or an `unsafe fn` declaration.
+  A raw-pointer read/write using unary `*` is legal only inside such a block.
 - `defer expr;`, `errdefer expr;` and possibly block forms. The exact forms are open.
 
 ## Expressions
@@ -137,4 +140,4 @@ pub fn main() -> i32 {
 
 Recursive descent for declarations and statements, Pratt parsing for expressions. Separate parsers for types and patterns. The AST keeps source spans and is allocated in an arena.
 
-**Open:** complete pattern grammar, `unsafe` blocks, method and lambda syntax (neither exists yet), generic argument disambiguation, `defer` grammar, recovery and diagnostics for incomplete files.
+**Open:** complete pattern grammar, `unsafe` expressions/functions, method and lambda syntax (neither exists yet), generic argument disambiguation, `defer` grammar, recovery and diagnostics for incomplete files.

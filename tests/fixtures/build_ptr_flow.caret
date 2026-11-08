@@ -1,0 +1,15 @@
+fn amount(flag: bool) -> i32 {
+    if flag {
+        return 22;
+    }
+    return 1;
+}
+
+fn main() -> i32 {
+    var number = 20;
+    let pointer = &number;
+    unsafe {
+        *pointer += amount(true || false);
+    }
+    return number;
+}

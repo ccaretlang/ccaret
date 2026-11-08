@@ -2892,6 +2892,47 @@ static void test_module_headers_and_qualified_names(void)
     fixture_destroy(&f);
 }
 
+static void test_unsafe_pointer_statements(void)
+{
+    ParserFixture f;
+    fixture_init(&f,
+        "fn main() -> i32 {"
+        " var n = 20; let p: *i32 = &n;"
+        " unsafe { unsafe { *p += 22; } let x = *p; }"
+        " return n; }");
+    CcFunctionDeclaration *fn = cc_parser_parse_program(&f.parser);
+    assert(fn != NULL && !f.parser.failed);
+    CcStatement *binding = fn->body->first;
+    assert(binding != NULL && binding->kind == CC_AST_STATEMENT_LET);
+    binding = binding->next;
+    assert(binding != NULL && binding->kind == CC_AST_STATEMENT_LET);
+    assert(binding->let.type->kind == CC_AST_TYPE_POINTER);
+    assert(!binding->let.type->pointer_pointee_const);
+    assert(binding->let.initializer->kind == CC_AST_EXPRESSION_UNARY);
+    assert(binding->let.initializer->unary.operator == CC_AST_UNARY_OPERATOR_AMP);
+    CcStatement *outer = binding->next;
+    assert(outer != NULL && outer->kind == CC_AST_STATEMENT_UNSAFE);
+    assert(outer->unsafe_block != NULL);
+    CcStatement *inner = outer->unsafe_block->first;
+    assert(inner != NULL && inner->kind == CC_AST_STATEMENT_UNSAFE);
+    CcStatement *write = inner->unsafe_block->first;
+    assert(write != NULL && write->kind == CC_AST_STATEMENT_ASSIGNMENT);
+    assert(write->assignment.operator == CC_AST_ASSIGNMENT_PLUS);
+    assert(write->assignment.target->kind == CC_AST_EXPRESSION_UNARY);
+    assert(write->assignment.target->unary.operator == CC_AST_UNARY_OPERATOR_STAR);
+    CcStatement *read = inner->next;
+    assert(read != NULL && read->kind == CC_AST_STATEMENT_LET);
+    assert(read->let.initializer->kind == CC_AST_EXPRESSION_UNARY);
+    assert(read->let.initializer->unary.operator == CC_AST_UNARY_OPERATOR_STAR);
+    assert(outer->next != NULL && outer->next->kind == CC_AST_STATEMENT_RETURN);
+    fixture_destroy(&f);
+
+    fixture_init(&f, "fn main() { unsafe { let p = 1; }");
+    cc_parser_parse_program(&f.parser);
+    assert(f.parser.failed && f.parser.error != NULL);
+    fixture_destroy(&f);
+}
+
 int main(void)
 {
     test_simple_function();
@@ -2968,6 +3009,7 @@ int main(void)
     test_array_literals();
     test_struct_syntax();
     test_module_headers_and_qualified_names();
+    test_unsafe_pointer_statements();
     test_parse_errors();
     test_empty_source_without_functions();
 

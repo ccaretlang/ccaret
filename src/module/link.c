@@ -689,6 +689,9 @@ static bool walk_block(Visitor *visitor, const CcBlock *block)
             visitor->locals = before;
             break;
         }
+        case CC_AST_STATEMENT_UNSAFE:
+            if (!walk_block(visitor, stmt->unsafe_block)) goto failed;
+            break;
         default: break;
         }
     }

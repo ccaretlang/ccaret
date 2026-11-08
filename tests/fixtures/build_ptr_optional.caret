@@ -1,0 +1,10 @@
+fn passthrough(value: ?*i32) -> ?*i32 {
+    return value;
+}
+
+fn main() -> i32 {
+    var number = 42;
+    let optional = passthrough(some(&number));
+    let absent: ?*i32 = none;
+    return number;
+}

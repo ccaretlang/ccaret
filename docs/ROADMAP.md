@@ -57,7 +57,10 @@
 - [ ] Full field visibility, opaque exported structs, multi-file module
       units, package/search configuration, stable module ABI and
       representation attributes.
-- [ ] Raw pointers, `unsafe`, C ABI declarations and function pointers.
+- [x] Raw pointer subset: `*T` / `*const T`, `&local`, lexical `unsafe`
+      reads/writes, typed verified IR and C17 executable pipeline.
+- [ ] Pointer arithmetic, cast/provenance rules, C ABI declarations,
+      function pointers, lifetime/escape diagnostics and allocator/FFI support.
 - [ ] Slices, bounds checks and layout intrinsics.
 
 ## Phase 5: Enums, optionals and cleanup

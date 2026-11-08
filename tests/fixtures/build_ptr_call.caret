@@ -1,0 +1,16 @@
+fn increment(ptr: *i32, amount: i32) {
+    unsafe {
+        *ptr += amount;
+    }
+}
+
+fn identity(ptr: *i32) -> *i32 {
+    return ptr;
+}
+
+fn main() -> i32 {
+    var value = 20;
+    let pointer = identity(&value);
+    increment(pointer, 22);
+    return value;
+}

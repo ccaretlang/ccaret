@@ -22,7 +22,7 @@
 | P-001 | Keywords, operators, punctuation and literal rules in `LEXICAL.md`. | Freeze grammar conflicts and token behavior. |
 | P-002 | `fn`, `let`, `var`, `module`, `pub` as core syntax. | Formal EBNF, reserved word policy. |
 | P-003 | Signed arithmetic traps, unsigned wraps, explicit `+%`. | Exact overflow and cast rules, target lowering. |
-| P-004 | `*T` is a non-null raw pointer, `?*T` is nullable. | Aliasing, provenance, reference safety. |
+| P-004 | `*T` is proposed non-null raw pointer, `?*T` nullable. | Initial typed C17 pointer operations implemented; non-null guarantee, aliasing, provenance, escape safety and reference safety still open. |
 | P-005 | Ordinary structs and tuples have copy semantics. | Ownership and resource contracts. |
 | P-006 | `?T`, `Result<T,E>`, `try`, `defer`, `errdefer`. | Failure paths and cleanup edge cases. |
 | P-007 | One file per module, acyclic imports for now. | Bootstrap subset implemented for local root-relative source graphs, aliased imports and `pub` checks; final package layout, search roots and separate compilation remain open. |
@@ -40,7 +40,7 @@
 6. Which forms of `match` patterns and `defer`/`errdefer` blocks are legal?
 7. Does `Result<void,E>` use `.Ok()`? How is error mapping expressed?
 8. How are package roots, module paths and the C ABI target configured?
-9. How is source-level `unsafe` checked and scoped? Which intrinsics require it?
+9. Beyond implemented lexical `unsafe { ... }` for raw pointer dereferences, which additional unsafe operations and intrinsics require it?
 10. Should the compiler keep separate high-level and low-level typed IRs?
 
 ## How decisions are made

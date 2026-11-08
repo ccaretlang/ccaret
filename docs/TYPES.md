@@ -51,6 +51,17 @@ These rules must hold at every GCC optimization level. The backend must not rely
 
 Arrays and slices are different types. Any implicit array to slice conversion needs an exact rule. A slice does not own memory and cannot stop a use-after-free.
 
+The bootstrap C17 pipeline implements `*T`, `*const T` and `?*T`
+as raw pointer values. Taking the address of a mutable named local (`&var`)
+gives `*T`; an immutable binding (`&let`) gives `*const T`. Reads/writes
+through a raw pointer require `unsafe { ... }`, and writes through a
+`*const T` are rejected. Pointer constness applies to the referent, not the
+binding holding the pointer. No pointer arithmetic, general casts, arbitrary
+address creation, volatile access, function pointers, lifetimes, provenance
+or borrow checking is implemented. The proposed non-null/nullable distinction
+is not currently enforced by the IR or C17 runtime; even a non-null pointer
+may dangle. Escaping local addresses is not yet statically rejected.
+
 In the bootstrap fixed-array subset, `[N]T` values copy by value,
 including when passed to and returned from functions. Array elements
 can be indexed with an `i32` expression; negative or out-of-bounds
@@ -75,7 +86,8 @@ values copy by value, including parameters and return values; a
 mutable local can update one of its fields. Struct types may nest
 inside fixed arrays, tuples, optionals and other structs. Recursive
 by-value structures (direct or indirect) are rejected; pointers to
-recursive types await the later pointer milestone.
+recursive types via pointers are not yet supported by the current recursive
+layout analysis.
 
 Across local modules, `pub struct` exports a nominal type and `pub`
 on fields marks them visible. The current linker allows external use of
