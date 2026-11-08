@@ -1,0 +1,15 @@
+fn carry(value: (?i32, ?(i32, i32))) -> (?i32, ?(i32, i32)) {
+    return value;
+}
+
+fn nested(value: ??i32) -> ??i32 {
+    return value;
+}
+
+fn main() -> i32 {
+    let pair: (?i32, ?(i32, i32)) = carry((none, some((3, 4))));
+    let missing_pair: (?i32, ?(i32, i32)) = (some(1), none);
+    let present: ??i32 = nested(some(some(42)));
+    let missing: ??i32 = nested(some(none));
+    return 42;
+}

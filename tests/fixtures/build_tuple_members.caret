@@ -1,0 +1,11 @@
+fn make(x: i32) -> (i32, (i32, bool)) {
+    return (x, (x + 1, true));
+}
+
+fn main() -> i32 {
+    let result = make(10);
+    if result.1.1 {
+        return result.0 + result.1.0;
+    }
+    return 0;
+}

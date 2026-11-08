@@ -11,11 +11,29 @@
 
 #define CC_IR_NONE UINT32_MAX
 
-typedef enum {
+typedef uint32_t CcIrType;
+
+enum {
     CC_IR_VOID,
     CC_IR_I32,
     CC_IR_BOOL
-} CcIrType;
+};
+
+typedef enum {
+    CC_IR_TYPE_TUPLE,
+    CC_IR_TYPE_OPTIONAL
+} CcIrCompositeKind;
+
+typedef struct CcIrTypeInfo CcIrTypeInfo;
+
+struct CcIrTypeInfo {
+    CcIrType id;
+    CcIrCompositeKind kind;
+    uint32_t count;
+    CcIrType *members;
+    CcIrType inner;
+    CcIrTypeInfo *next;
+};
 
 typedef enum {
     CC_IR_CONST_I32,
@@ -35,7 +53,11 @@ typedef enum {
     CC_IR_LE,
     CC_IR_GT,
     CC_IR_GE,
-    CC_IR_CALL
+    CC_IR_CALL,
+    CC_IR_MAKE_TUPLE,
+    CC_IR_GET_TUPLE,
+    CC_IR_MAKE_SOME,
+    CC_IR_MAKE_NONE
 } CcIrOpcode;
 
 typedef enum {
@@ -116,7 +138,13 @@ struct CcIrModule {
     const CcSourceFile *file;
     CcIrFunction *functions;
     uint32_t function_count;
+    CcIrTypeInfo *types;
+    CcIrTypeInfo *last_type;
+    uint32_t type_count;
 };
+
+/* Built-in IDs 0..2 are implicit. All composite IDs are module-local. */
+const CcIrTypeInfo *cc_ir_type_info(const CcIrModule *module, CcIrType type);
 
 typedef struct {
     CcSourceSpan span;

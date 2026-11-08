@@ -55,6 +55,9 @@ static void expect_invalid(CcIrModule *module, const char *message)
     CcIrError error;
     assert(!cc_ir_verify(module, &error));
     assert(error.message != NULL);
+    if (strcmp(error.message, message) != 0)
+        fprintf(stderr, "expected: %s; actual: %s\n", message,
+                error.message);
     assert(strcmp(error.message, message) == 0);
     FILE *out = tmpfile();
     assert(out != NULL);
@@ -187,11 +190,184 @@ static void test_short_circuit_cfg(void)
     fixture_destroy(&f);
 }
 
+static CcIrInstruction *find_instruction(CcIrFunction *fn, CcIrOpcode opcode)
+{
+    for (CcIrBlock *block = fn->blocks; block != NULL; block = block->next)
+        for (CcIrInstruction *i = block->first; i != NULL; i = i->next)
+            if (i->op == opcode) return i;
+    return NULL;
+}
+
+static void test_tuple_destructuring_and_type_interning(void)
+{
+    Fixture f;
+    fixture_init(&f,
+        "fn id(x: (i32, ?i32)) -> (i32, ?i32) { return x; }"
+        "fn main() -> i32 {"
+        " let (a, b): (i32, ?i32) = id((40, some(2)));"
+        " let c: ?i32 = none;"
+        " return a + 2; }");
+    lower(&f);
+    assert(f.module->type_count == 5);
+    const CcIrTypeInfo *optional = cc_ir_type_info(f.module, 3);
+    const CcIrTypeInfo *tuple = cc_ir_type_info(f.module, 4);
+    assert(optional != NULL && optional->kind == CC_IR_TYPE_OPTIONAL);
+    assert(optional->inner == CC_IR_I32);
+    assert(tuple != NULL && tuple->kind == CC_IR_TYPE_TUPLE);
+    assert(tuple->count == 2);
+    assert(tuple->members[0] == CC_IR_I32);
+    assert(tuple->members[1] == optional->id);
+    assert(cc_ir_type_info(f.module, CC_IR_NONE) == NULL);
+    assert(cc_ir_type_info(f.module, CC_IR_I32) == NULL);
+    assert(find_instruction(f.module->functions->next, CC_IR_MAKE_TUPLE));
+    assert(find_instruction(f.module->functions->next, CC_IR_GET_TUPLE));
+    assert(find_instruction(f.module->functions->next, CC_IR_MAKE_SOME));
+    assert(find_instruction(f.module->functions->next, CC_IR_MAKE_NONE));
+
+    FILE *out = tmpfile();
+    assert(out != NULL);
+    assert(cc_ir_print(out, f.module));
+    rewind(out);
+    char text[8192];
+    size_t n = fread(text, 1, sizeof(text) - 1, out);
+    text[n] = '\0';
+    assert(strstr(text, "type t3 = ?i32\n") != NULL);
+    assert(strstr(text, "type t4 = (i32, t3)\n") != NULL);
+    assert(strstr(text, "tuple(") != NULL);
+    assert(strstr(text, "tuple.get ") != NULL);
+    assert(strstr(text, "some ") != NULL);
+    assert(strstr(text, "none\n") != NULL);
+    assert(fclose(out) == 0);
+
+    out = tmpfile();
+    assert(out != NULL);
+    CcIrError error;
+    assert(cc_c_emit(out, f.module, &error));
+    rewind(out);
+    n = fread(text, 1, sizeof(text) - 1, out);
+    text[n] = '\0';
+    assert(strstr(text, "} cc_t_3;") != NULL);
+    assert(strstr(text, "} cc_t_4;") != NULL);
+    assert(strstr(text, ".has = true") != NULL);
+    assert(strstr(text, ".f0 =") != NULL);
+    assert(fclose(out) == 0);
+    fixture_destroy(&f);
+}
+
+static void test_invalid_tuple_ir(void)
+{
+    Fixture f;
+    fixture_init(&f,
+        "fn main() -> i32 {"
+        " let (a, b): (i32, bool) = (42, true);"
+        " if b { return a; } return 0; }");
+    lower(&f);
+    CcIrInstruction *make =
+        find_instruction(f.module->functions, CC_IR_MAKE_TUPLE);
+    CcIrInstruction *get =
+        find_instruction(f.module->functions, CC_IR_GET_TUPLE);
+    assert(make != NULL && get != NULL);
+    assert(make->arg_count == 2);
+    CcIrTypeInfo *type = f.module->types;
+    assert(type != NULL && type->kind == CC_IR_TYPE_TUPLE);
+
+    make->arg_count = 1;
+    expect_invalid(f.module, "IR verifier: invalid tuple constructor");
+    make->arg_count = 2;
+    uint32_t saved_arg = make->args[0];
+    make->args[0] = make->args[1];
+    expect_invalid(f.module,
+                   "IR verifier: undefined, cross-block or mistyped register");
+    make->args[0] = saved_arg;
+    make->type = CC_IR_I32;
+    expect_invalid(f.module, "IR verifier: invalid tuple constructor");
+    make->type = type->id;
+
+    uint32_t saved_slot = get->slot;
+    get->slot = 99;
+    expect_invalid(f.module, "IR verifier: invalid tuple projection");
+    get->slot = saved_slot;
+    uint32_t saved_lhs = get->lhs;
+    get->lhs = saved_arg;
+    expect_invalid(f.module, "IR verifier: invalid tuple projection");
+    get->lhs = saved_lhs;
+    CcIrType saved_projection = get->type;
+    get->type = saved_projection == CC_IR_I32 ? CC_IR_BOOL : CC_IR_I32;
+    expect_invalid(f.module, "IR verifier: invalid tuple projection");
+    get->type = saved_projection;
+
+    CcIrType saved_member = type->members[0];
+    type->members[0] = CC_IR_NONE;
+    expect_invalid(f.module, "IR verifier: invalid tuple element type");
+    type->members[0] = type->id;
+    expect_invalid(f.module, "IR verifier: invalid tuple element type");
+    type->members[0] = saved_member;
+    type->id = 99;
+    expect_invalid(f.module, "IR verifier: invalid type table");
+    type->id = 3;
+    f.module->type_count++;
+    expect_invalid(f.module, "IR verifier: invalid type table");
+    f.module->type_count--;
+    CcIrTypeInfo duplicate = *type;
+    duplicate.id = 4;
+    duplicate.next = NULL;
+    type->next = &duplicate;
+    f.module->type_count++;
+    expect_invalid(f.module, "IR verifier: duplicate composite type");
+    f.module->type_count--;
+    type->next = NULL;
+
+    CcIrError error;
+    assert(cc_ir_verify(f.module, &error));
+    fixture_destroy(&f);
+}
+
+static void test_invalid_optional_ir(void)
+{
+    Fixture f;
+    fixture_init(&f,
+        "fn main() -> i32 {"
+        " let flag: bool = true;"
+        " let a: ?i32 = some(12);"
+        " let b: ?i32 = none;"
+        " return 42; }");
+    lower(&f);
+    CcIrInstruction *some =
+        find_instruction(f.module->functions, CC_IR_MAKE_SOME);
+    CcIrInstruction *none =
+        find_instruction(f.module->functions, CC_IR_MAKE_NONE);
+    CcIrInstruction *boolean =
+        find_instruction(f.module->functions, CC_IR_CONST_BOOL);
+    assert(some != NULL && none != NULL && boolean != NULL);
+    CcIrTypeInfo *type = f.module->types;
+    assert(type != NULL && type->kind == CC_IR_TYPE_OPTIONAL);
+
+    uint32_t saved_lhs = some->lhs;
+    some->lhs = boolean->result;
+    expect_invalid(f.module, "IR verifier: invalid some constructor");
+    some->lhs = saved_lhs;
+    some->type = CC_IR_I32;
+    expect_invalid(f.module, "IR verifier: invalid some constructor");
+    some->type = type->id;
+    none->type = CC_IR_I32;
+    expect_invalid(f.module, "IR verifier: invalid none constructor");
+    none->type = type->id;
+    type->inner = type->id;
+    expect_invalid(f.module, "IR verifier: invalid optional type");
+    type->inner = CC_IR_VOID;
+    expect_invalid(f.module, "IR verifier: invalid optional type");
+    type->inner = CC_IR_I32;
+
+    CcIrError error;
+    assert(cc_ir_verify(f.module, &error));
+    fixture_destroy(&f);
+}
+
 static void test_explicit_unsupported(void)
 {
     Fixture f;
     fixture_init(&f,
-        "fn main() -> i32 { let (a, b) = (1, 2); return a + b; }");
+        "fn unsupported(x: []i32) {}");
     CcFunctionDeclaration *program = cc_parser_parse_program(&f.parser);
     assert(!f.parser.failed);
     CcSemanticError semantic_error;
@@ -201,7 +377,7 @@ static void test_explicit_unsupported(void)
     assert(!cc_ir_lower(file, program, &f.arena, &f.module, &error));
     assert(error.message != NULL);
     assert(strcmp(error.message,
-           "IR lowering: tuple binding patterns not yet supported") == 0);
+           "IR backend currently supports only i32, bool, void, tuples and optionals") == 0);
     assert(error.span.file_id == f.file_id);
     fixture_destroy(&f);
 }
@@ -224,6 +400,9 @@ int main(void)
     test_missing_terminator();
     test_bad_call_signature();
     test_short_circuit_cfg();
+    test_tuple_destructuring_and_type_interning();
+    test_invalid_tuple_ir();
+    test_invalid_optional_ir();
     test_explicit_unsupported();
     test_bad_inputs();
     puts("IR: all tests passed");

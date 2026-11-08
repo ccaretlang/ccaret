@@ -2,14 +2,14 @@
 
 #include <inttypes.h>
 
-static const char *type_name(CcIrType type)
+static void print_type(FILE *out, CcIrType type)
 {
     switch (type) {
-    case CC_IR_VOID: return "void";
-    case CC_IR_I32: return "i32";
-    case CC_IR_BOOL: return "bool";
+    case CC_IR_VOID: fputs("void", out); return;
+    case CC_IR_I32: fputs("i32", out); return;
+    case CC_IR_BOOL: fputs("bool", out); return;
+    default: fprintf(out, "t%u", type); return;
     }
-    return "invalid";
 }
 
 static const char *op_name(CcIrOpcode op)
@@ -33,6 +33,10 @@ static const char *op_name(CcIrOpcode op)
     case CC_IR_GT: return "gt";
     case CC_IR_GE: return "ge";
     case CC_IR_CALL: return "call";
+    case CC_IR_MAKE_TUPLE: return "tuple";
+    case CC_IR_GET_TUPLE: return "tuple.get";
+    case CC_IR_MAKE_SOME: return "some";
+    case CC_IR_MAKE_NONE: return "none";
     }
     return "invalid";
 }
@@ -40,22 +44,43 @@ static const char *op_name(CcIrOpcode op)
 bool cc_ir_print(FILE *out, const CcIrModule *module)
 {
     if (out == NULL || module == NULL) return false;
+    for (const CcIrTypeInfo *type = module->types; type != NULL;
+         type = type->next) {
+        fprintf(out, "type t%u = ", type->id);
+        if (type->kind == CC_IR_TYPE_OPTIONAL) {
+            fputc('?', out);
+            print_type(out, type->inner);
+        } else {
+            fputc('(', out);
+            for (uint32_t m = 0; m < type->count; m++) {
+                if (m != 0) fputs(", ", out);
+                print_type(out, type->members[m]);
+            }
+            if (type->count == 1) fputc(',', out);
+            fputc(')', out);
+        }
+        fputc('\n', out);
+    }
     for (const CcIrFunction *fn = module->functions; fn != NULL;
          fn = fn->next) {
         fprintf(out, "fn @%u(", fn->id);
-        for (uint32_t p = 0; p < fn->param_count; p++)
-            fprintf(out, "%s%s", p == 0 ? "" : ", ",
-                    type_name(fn->param_types[p]));
-        fprintf(out, ") -> %s {\n", type_name(fn->result));
+        for (uint32_t p = 0; p < fn->param_count; p++) {
+            if (p != 0) fputs(", ", out);
+            print_type(out, fn->param_types[p]);
+        }
+        fputs(") -> ", out);
+        print_type(out, fn->result);
+        fputs(" {\n", out);
         for (const CcIrBlock *block = fn->blocks; block != NULL;
              block = block->next) {
             fprintf(out, "  block%u:\n", block->id);
             for (const CcIrInstruction *i = block->first; i != NULL;
                  i = i->next) {
-                if (i->result != CC_IR_NONE)
-                    fprintf(out, "    %%%u:%s = ", i->result,
-                            type_name(i->type));
-                else fputs("    ", out);
+                if (i->result != CC_IR_NONE) {
+                    fprintf(out, "    %%%u:", i->result);
+                    print_type(out, i->type);
+                    fputs(" = ", out);
+                } else fputs("    ", out);
                 fprintf(out, "%s", op_name(i->op));
                 switch (i->op) {
                 case CC_IR_CONST_I32:
@@ -75,6 +100,20 @@ bool cc_ir_print(FILE *out, const CcIrModule *module)
                     for (uint32_t p = 0; p < i->arg_count; p++)
                         fprintf(out, "%s%%%u", p == 0 ? "" : ", ", i->args[p]);
                     fputc(')', out);
+                    break;
+                case CC_IR_MAKE_TUPLE:
+                    fputc('(', out);
+                    for (uint32_t p = 0; p < i->arg_count; p++)
+                        fprintf(out, "%s%%%u", p == 0 ? "" : ", ", i->args[p]);
+                    fputc(')', out);
+                    break;
+                case CC_IR_GET_TUPLE:
+                    fprintf(out, " %%%u.%u", i->lhs, i->slot);
+                    break;
+                case CC_IR_MAKE_SOME:
+                    fprintf(out, " %%%u", i->lhs);
+                    break;
+                case CC_IR_MAKE_NONE:
                     break;
                 default:
                     fprintf(out, " %%%u, %%%u", i->lhs, i->rhs);

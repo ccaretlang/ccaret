@@ -6,9 +6,11 @@ The repository has a C17 CLI, UTF-8 source manager, lexer, arena-allocated
 AST and parser, initial semantic checker, typed non-SSA IR with verifier,
 and a C17 backend. The `ccaret tokens`, `check`, `emit-ir`, `emit-c`
 and `build` commands work for their documented subset. Source programs
-using only `i32`, `bool`, `void` and supported expressions/statements
-can now become GCC-compiled executables. The frontend supports additional
-syntax and types that are **not yet lowerable**. See
+using `i32`, `bool`, `void`, nested tuple values and optional
+`?T` construction/propagation (plus supported expressions/statements)
+can become GCC-compiled executables. The frontend supports additional
+syntax and types that are **not yet lowerable**, including optional
+unwrapping/pattern matching. See
 [SEMANTIC.md](SEMANTIC.md) and [BACKEND_C.md](BACKEND_C.md).
 
 ## Planned architecture
@@ -20,7 +22,7 @@ syntax and types that are **not yet lowerable**. See
     -> Parser (recursive descent + Pratt expressions)
     -> AST (arena allocated)
     -> Symbol resolution and type checking
-    -> Typed IR + verifier + lowering
+    -> Typed IR lowering + verifier
     -> C backend (generated C17)
     -> GCC driver
     -> Native executable
@@ -79,7 +81,10 @@ fn main() -> i32 {
 }
 ```
 
-Once the pipeline works, `ccaret build examples/hello.caret -o hello` should produce a binary that exits with status `42` on supported platforms.
+`ccaret build examples/hello.caret -o hello` produces a binary that
+exits with status `42` on supported platforms. The regression suite also
+compiles and executes `tests/fixtures/check_valid.caret`, where `divmod`
+returns a tuple, with exit status `5`.
 
 ## Performance measurements
 

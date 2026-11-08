@@ -4,14 +4,36 @@
 #include <stdlib.h>
 #include <string.h>
 
-static const char *c_type(CcIrType type)
+static void emit_c_type(FILE *out, CcIrType type)
 {
     switch (type) {
-    case CC_IR_VOID: return "void";
-    case CC_IR_I32: return "int32_t";
-    case CC_IR_BOOL: return "bool";
+    case CC_IR_VOID: fputs("void", out); return;
+    case CC_IR_I32: fputs("int32_t", out); return;
+    case CC_IR_BOOL: fputs("bool", out); return;
+    default: fprintf(out, "cc_t_%u", type); return;
     }
-    return "invalid";
+}
+
+static void emit_type_definitions(FILE *out, const CcIrModule *module)
+{
+    for (const CcIrTypeInfo *type = module->types; type != NULL;
+         type = type->next) {
+        fputs("typedef struct {\n", out);
+        if (type->kind == CC_IR_TYPE_OPTIONAL) {
+            fputs("  bool has;\n  ", out);
+            emit_c_type(out, type->inner);
+            fputs(" value;\n", out);
+        } else if (type->count == 0) {
+            fputs("  uint8_t _unit;\n", out);
+        } else {
+            for (uint32_t m = 0; m < type->count; m++) {
+                fputs("  ", out);
+                emit_c_type(out, type->members[m]);
+                fprintf(out, " f%u;\n", m);
+            }
+        }
+        fprintf(out, "} cc_t_%u;\n\n", type->id);
+    }
 }
 
 static bool is_main(const CcIrModule *module, const CcIrFunction *fn)
@@ -35,11 +57,14 @@ bool cc_c_has_main(const CcIrModule *module)
 
 static void emit_signature(FILE *out, const CcIrFunction *fn)
 {
-    fprintf(out, "%s cc_fn_%u(", c_type(fn->result), fn->id);
+    emit_c_type(out, fn->result);
+    fprintf(out, " cc_fn_%u(", fn->id);
     if (fn->param_count == 0) fputs("void", out);
-    for (uint32_t p = 0; p < fn->param_count; p++)
-        fprintf(out, "%s%s a%u", p == 0 ? "" : ", ",
-                c_type(fn->param_types[p]), p);
+    for (uint32_t p = 0; p < fn->param_count; p++) {
+        if (p != 0) fputs(", ", out);
+        emit_c_type(out, fn->param_types[p]);
+        fprintf(out, " a%u", p);
+    }
     fputc(')', out);
 }
 
@@ -90,6 +115,24 @@ static void emit_instruction(FILE *out, const CcIrInstruction *i)
             fprintf(out, "%sr%u", a == 0 ? "" : ", ", i->args[a]);
         fputc(')', out);
         break;
+    case CC_IR_MAKE_TUPLE:
+        fprintf(out, "(cc_t_%u){", i->type);
+        if (i->arg_count == 0) fputs("0", out);
+        for (uint32_t a = 0; a < i->arg_count; a++)
+            fprintf(out, "%s.f%u = r%u", a == 0 ? " " : ", ",
+                    a, i->args[a]);
+        fputs(" }", out);
+        break;
+    case CC_IR_GET_TUPLE:
+        fprintf(out, "r%u.f%u", i->lhs, i->slot);
+        break;
+    case CC_IR_MAKE_SOME:
+        fprintf(out, "(cc_t_%u){ .has = true, .value = r%u }",
+                i->type, i->lhs);
+        break;
+    case CC_IR_MAKE_NONE:
+        fprintf(out, "(cc_t_%u){0}", i->type);
+        break;
     }
     fputs(";\n", out);
 }
@@ -124,17 +167,26 @@ static bool emit_function(FILE *out, const CcIrFunction *fn)
     emit_signature(out, fn);
     fputs(" {\n", out);
     for (const CcIrSlot *slot = fn->slots; slot != NULL; slot = slot->next) {
-        fprintf(out, "  %s s%u = ", c_type(slot->type), slot->id);
+        fputs("  ", out);
+        emit_c_type(out, slot->type);
+        fprintf(out, " s%u = ", slot->id);
         if (slot->id < fn->param_count) fprintf(out, "a%u", slot->id);
-        else fputs(slot->type == CC_IR_BOOL ? "false" : "INT32_C(0)", out);
+        else if (slot->type == CC_IR_BOOL) fputs("false", out);
+        else if (slot->type == CC_IR_I32) fputs("INT32_C(0)", out);
+        else fprintf(out, "(cc_t_%u){0}", slot->type);
         fputs(";\n", out);
         fprintf(out, "  (void)s%u;\n", slot->id);
     }
     for (const CcIrRegister *reg = fn->registers; reg != NULL;
          reg = reg->next) {
         if (!reachable[reg->block]) continue;
-        fprintf(out, "  %s r%u = %s;\n", c_type(reg->type), reg->id,
-                reg->type == CC_IR_BOOL ? "false" : "INT32_C(0)");
+        fputs("  ", out);
+        emit_c_type(out, reg->type);
+        fprintf(out, " r%u = ", reg->id);
+        if (reg->type == CC_IR_BOOL) fputs("false", out);
+        else if (reg->type == CC_IR_I32) fputs("INT32_C(0)", out);
+        else fprintf(out, "(cc_t_%u){0}", reg->type);
+        fputs(";\n", out);
         fprintf(out, "  (void)r%u;\n", reg->id);
     }
     fputs("  goto L0;\n", out);
@@ -211,6 +263,8 @@ bool cc_c_emit(FILE *out, const CcIrModule *module, CcIrError *error)
           "  if (b == 0 || (a == INT32_MIN && b == -1)) abort();\n"
           "  return a % b;\n"
           "}\n\n", out);
+
+    emit_type_definitions(out, module);
 
     for (const CcIrFunction *fn = module->functions; fn != NULL;
          fn = fn->next) {

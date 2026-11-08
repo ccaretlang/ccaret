@@ -4,14 +4,14 @@
 
 The IR exists from the first working compiler. The AST must never emit final C code. The frontend describes source semantics and knows nothing about the backend.
 
-## Implemented initial model
+## Implemented IR model
 
 The first version now uses a typed, basic-block, non-SSA IR. Each function
 has typed parameters, local slots, temporaries, basic blocks and explicit
-terminators. The current lowering supports the scalar subset `i32`,
-`bool`, and `void`; other source types are intentionally rejected at
-IR lowering, even when the semantic analyzer accepts them. SSA can be
-added later if measurements show it is worthwhile.
+terminators. Lowering supports `i32`, `bool`, `void`, structural tuples
+(including zero- and one-element tuples) and optional `?T` values, including
+nested aggregate types. Other source types still fail explicitly at IR
+lowering. SSA can be added later if measurements show it is worthwhile.
 
 ```text
 function add(a: i32, b: i32) -> i32
@@ -20,22 +20,34 @@ block entry:
     ret %0
 ```
 
-Tuple aggregates and aggregate ABI lowering are planned, not implemented.
+Composite types have canonical, module-local IDs starting at `3` (IDs
+`0`–`2` designate `void`, `i32`, `bool`). Identical structural types
+are interned once. Tuple member types and optional payload types are
+defined before the enclosing type, and the verifier rejects invalid,
+forward, self-referential or duplicate composite definitions. `emit-ir`
+prints type definitions such as `type t3 = (i32, bool)` and
+`type t4 = ?t3`.
 
-## Instruction families
+## Implemented instruction families
 
 | Category | Operations |
 |---|---|
-| Values | `const`, `copy`, `cast` |
-| Arithmetic | `add`, `sub`, `mul`, `div`, `mod`, `shift`, with explicit overflow and checked flags |
-| Logic | `cmp`, bitwise operations |
-| Memory | `alloca`, `load`, `store`, `addr_of`, offset and index calculations |
-| Aggregates | `make_aggregate`, `extract_field`, `insert_field` |
-| Tagged values | `make_variant`, `get_tag`, `extract_payload` |
-| Calls | `call`, `call_indirect` |
+| Values | `const.i32`, `const.bool` |
+| Arithmetic | Checked `add`, `sub`, `mul`, `div`, `mod`, unary `neg` |
+| Logic | `not`, equality and ordered comparisons |
+| Locals | `load`, `store` with typed slots |
+| Aggregates | `tuple` (construct), `tuple.get` (project numbered member) |
+| Tagged values | `some`, `none` (construct optional values) |
+| Calls | Direct `call`, including aggregate parameters and results |
 | Control | `br`, `condbr`, `ret`, `trap` |
 
-`match` becomes tests and branches. `try` becomes success and error branches. `defer` becomes explicit cleanup blocks and edges. Boolean short-circuiting has to appear in the control flow. Trap behavior must not turn into C undefined behavior.
+Tuple destructuring lowers to a sequence of typed projections and slot
+bindings. Tuple elements and call arguments are evaluated left-to-right
+and temporarily stored in slots before aggregate construction or calls.
+This also works when a child expression emits new control-flow blocks.
+Optional unwrapping, `match`, `try`, `defer`, and their control-flow
+lowerings remain future work. Boolean short-circuiting appears explicitly
+in the CFG. Traps must not become C undefined behavior.
 
 ## Passes
 
@@ -43,7 +55,7 @@ Tuple aggregates and aggregate ABI lowering are planned, not implemented.
 2. Resolve names, infer and check types, assign `SymbolId` and `TypeId`.
 3. Lower high-level constructs into typed IR with explicit evaluation order.
 4. Verify operand types, block terminators, branch targets and local slot liveness.
-5. Lower aggregates and ABI details as needed by the backend.
+5. Map verified IR aggregates to backend-local C17 representations.
 6. Emit C17, invoke GCC and report diagnostics.
 
 ## Current verifier contract
@@ -54,7 +66,8 @@ The IR implementation is in `src/ir/`:
   functions, local slots, virtual registers and basic blocks.
 - `cc_ir_verify` independently rejects invalid function IDs, slot and
   register declarations, use-before-definition, cross-block register uses,
-  incorrect instruction/result types, bad calls and missing or invalid
+  incorrect instruction/result types, bad calls, malformed aggregate
+  constructors/projections, noncanonical type tables and missing or invalid
   block terminators/targets.
 - `cc_ir_print` produces a deterministic text form for inspection and
   testing; `ccaret emit-ir file.caret` prints it to stdout, with optional
@@ -75,7 +88,8 @@ Every backend receives a documented IR form and must preserve observable C^ sema
 
 ## Tests and open questions
 
-Tests now cover `return 42`, calls, recursion, arithmetic, branches,
-loops, short-circuit control flow, snapshots and intentionally corrupted
-IR. Tuple aggregates, `match`, cleanup, aliasing, ABI lowering, and
-full IR optimization remain future work.
+Tests cover `return 42`, calls, recursion, arithmetic, branches, loops,
+short-circuit control flow, tuple/optional propagation, the executable
+`divmod` tuple-return example, and intentionally corrupted IR. A stable
+external ABI for aggregates, `match`, cleanup, aliasing and full IR
+optimization remain future work.

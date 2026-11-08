@@ -1,0 +1,13 @@
+fn unit() -> () {
+    return ();
+}
+
+fn singleton(x: ()) -> (i32,) {
+    return (42,);
+}
+
+fn main() -> i32 {
+    let (): () = unit();
+    let (number,): (i32,) = singleton(());
+    return number;
+}

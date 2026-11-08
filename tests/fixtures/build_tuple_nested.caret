@@ -1,0 +1,8 @@
+fn reorder(x: (i32, (i32, i32))) -> ((i32, i32), i32) {
+    return (x.1, x.0);
+}
+
+fn main() -> i32 {
+    let ((a, b), c): ((i32, i32), i32) = reorder((8, (11, 12)));
+    return a + b + c;
+}

@@ -31,15 +31,18 @@
 
 ## Phase 3: IR and executable pipeline
 
-- [x] Define an initial typed IR and verifier (scalar subset).
+- [x] Define typed IR and verifier for scalars, tuples and optionals.
 - [x] Lower simple functions, calls, literals, arithmetic and returns into IR.
 - [x] C17 backend that reads the verified IR, not the AST directly.
 - [x] GCC process invocation and diagnostic forwarding for hosted builds.
 - [x] End-to-end test: compile `return 42`, run the binary, check exit status `42`.
+- [x] Canonical composite type IDs, aggregate IR instructions and verified
+      C17 layouts; compile and execute the tuple-returning `divmod` example.
 
 ## Phase 4: Practical C-like systems language
 
-- [ ] `let`, `var`, assignments, conditionals, loops.
+- [x] `let`, `var`, plain assignments, conditionals and loops for the
+      supported IR subset.
 - [ ] Structs, fixed arrays, module imports and visibility.
 - [ ] Raw pointers, `unsafe`, C ABI declarations and function pointers.
 - [ ] Slices, bounds checks and layout intrinsics.
@@ -47,9 +50,10 @@
 ## Phase 5: Enums, optionals and cleanup
 
 - [ ] Tagged enums, pattern matching and exhaustiveness.
-- [ ] Optional `?T`, `some`, `none`.
+- [x] Optional `?T`, `some`, `none` construction and value propagation
+      (not yet optional inspection/unwrapping or exhaustive matching).
 - [ ] `Result<T,E>` and `try` propagation.
-- [ ] Tuples and multi-value returns.
+- [x] Tuples, nested values, destructuring and multi-value returns.
 - [ ] `defer`, `errdefer`, cleanup and branching edge cases.
 
 ## Phase 6: Advanced systems features

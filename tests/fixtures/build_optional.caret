@@ -1,0 +1,19 @@
+fn id(value: ?i32) -> ?i32 {
+    return value;
+}
+
+fn wrap(value: i32) -> ?i32 {
+    return some(value);
+}
+
+fn absent() -> ?i32 {
+    return none;
+}
+
+fn main() -> i32 {
+    let present: ?i32 = id(wrap(42));
+    let missing: ?i32 = absent();
+    var changing: ?i32 = none;
+    changing = some(7);
+    return 42;
+}

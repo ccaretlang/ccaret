@@ -19,6 +19,12 @@ static const CcIrFunction *find_function(const CcIrModule *module,
     return NULL;
 }
 
+static bool valid_type(const CcIrModule *module, CcIrType id)
+{
+    return id < 3 ||
+        (id < module->type_count && cc_ir_type_info(module, id) != NULL);
+}
+
 static bool use_register(CcIrError *error, const CcIrInstruction *instruction,
                          uint32_t id, CcIrType expected,
                          const CcIrType *types, const uint32_t *blocks,
@@ -43,7 +49,8 @@ static bool validate_instruction(const CcIrModule *module,
     use_register(error, i, (ID), (TYPE), types, blocks, defined, \
                  register_count, block_id)
     bool has_result = i->type != CC_IR_VOID;
-    if (has_result != (i->result != CC_IR_NONE) ||
+    if (!valid_type(module, i->type) ||
+        has_result != (i->result != CC_IR_NONE) ||
         (has_result &&
          (i->result >= register_count || defined[i->result]))) {
         return fail(error, i->span, "IR verifier: invalid result register");
@@ -111,6 +118,46 @@ static bool validate_instruction(const CcIrModule *module,
                 return false;
         break;
     }
+    case CC_IR_MAKE_TUPLE: {
+        const CcIrTypeInfo *tuple = cc_ir_type_info(module, i->type);
+        if (tuple == NULL || tuple->kind != CC_IR_TYPE_TUPLE ||
+            tuple->count != i->arg_count ||
+            (i->arg_count != 0 && i->args == NULL))
+            return fail(error, i->span,
+                        "IR verifier: invalid tuple constructor");
+        for (uint32_t a = 0; a < i->arg_count; a++)
+            if (!USE(i->args[a], tuple->members[a])) return false;
+        break;
+    }
+    case CC_IR_GET_TUPLE: {
+        if (i->lhs >= register_count || !defined[i->lhs])
+            return fail(error, i->span,
+                        "IR verifier: invalid tuple projection");
+        CcIrType source = types[i->lhs];
+        const CcIrTypeInfo *tuple = cc_ir_type_info(module, source);
+        if (tuple == NULL || tuple->kind != CC_IR_TYPE_TUPLE ||
+            i->slot >= tuple->count ||
+            i->type != tuple->members[i->slot] ||
+            !USE(i->lhs, source))
+            return fail(error, i->span,
+                        "IR verifier: invalid tuple projection");
+        break;
+    }
+    case CC_IR_MAKE_SOME: {
+        const CcIrTypeInfo *optional = cc_ir_type_info(module, i->type);
+        if (optional == NULL || optional->kind != CC_IR_TYPE_OPTIONAL ||
+            !USE(i->lhs, optional->inner))
+            return fail(error, i->span,
+                        "IR verifier: invalid some constructor");
+        break;
+    }
+    case CC_IR_MAKE_NONE: {
+        const CcIrTypeInfo *optional = cc_ir_type_info(module, i->type);
+        if (optional == NULL || optional->kind != CC_IR_TYPE_OPTIONAL)
+            return fail(error, i->span,
+                        "IR verifier: invalid none constructor");
+        break;
+    }
     default:
         return fail(error, i->span, "IR verifier: unknown instruction");
     }
@@ -132,6 +179,48 @@ bool cc_ir_verify(const CcIrModule *module, CcIrError *error)
     if (module == NULL || module->file == NULL)
         return fail(error, error->span, "IR verifier: invalid module");
 
+    if (module->type_count < 3)
+        return fail(error, error->span, "IR verifier: invalid type table");
+    uint32_t type_id = 3;
+    for (const CcIrTypeInfo *type = module->types; type != NULL;
+         type = type->next) {
+        if (type->id != type_id++ ||
+            (type->kind != CC_IR_TYPE_TUPLE &&
+             type->kind != CC_IR_TYPE_OPTIONAL))
+            return fail(error, error->span, "IR verifier: invalid type table");
+        if (type->kind == CC_IR_TYPE_OPTIONAL) {
+            if (type->inner == CC_IR_VOID || type->inner >= type->id)
+                return fail(error, error->span,
+                            "IR verifier: invalid optional type");
+        } else {
+            if (type->count != 0 && type->members == NULL)
+                return fail(error, error->span,
+                            "IR verifier: invalid tuple type");
+            for (uint32_t i = 0; i < type->count; i++)
+                if (type->members[i] == CC_IR_VOID ||
+                    type->members[i] >= type->id)
+                    return fail(error, error->span,
+                                "IR verifier: invalid tuple element type");
+        }
+        for (const CcIrTypeInfo *other = module->types; other != type;
+             other = other->next) {
+            if (type->kind != other->kind) continue;
+            if (type->kind == CC_IR_TYPE_OPTIONAL) {
+                if (type->inner == other->inner)
+                    return fail(error, error->span,
+                                "IR verifier: duplicate composite type");
+            } else if (type->count == other->count &&
+                       (type->count == 0 ||
+                        memcmp(type->members, other->members,
+                               type->count * sizeof(*type->members)) == 0)) {
+                return fail(error, error->span,
+                            "IR verifier: duplicate composite type");
+            }
+        }
+    }
+    if (type_id != module->type_count)
+        return fail(error, error->span, "IR verifier: invalid type table");
+
     uint32_t function_count = 0;
     for (const CcIrFunction *fn = module->functions; fn != NULL;
          fn = fn->next) {
@@ -143,12 +232,14 @@ bool cc_ir_verify(const CcIrModule *module, CcIrError *error)
 
     for (const CcIrFunction *fn = module->functions; fn != NULL;
          fn = fn->next) {
-        if (fn->param_count > fn->slot_count ||
+        if (!valid_type(module, fn->result) ||
+            fn->param_count > fn->slot_count ||
             (fn->param_count != 0 && fn->param_types == NULL) ||
             fn->block_count == 0)
             return fail(error, fn->span, "IR verifier: invalid function header");
         for (uint32_t p = 0; p < fn->param_count; p++)
-            if (fn->param_types[p] == CC_IR_VOID)
+            if (fn->param_types[p] == CC_IR_VOID ||
+                !valid_type(module, fn->param_types[p]))
                 return fail(error, fn->span, "IR verifier: void parameter");
 
         CcIrType *slot_types =
@@ -176,7 +267,8 @@ bool cc_ir_verify(const CcIrModule *module, CcIrError *error)
         uint32_t slot_count = 0, register_count = 0, block_count = 0;
         for (const CcIrSlot *slot = fn->slots; slot != NULL; slot = slot->next) {
             if (slot->id != slot_count || slot->id >= fn->slot_count ||
-                slot->type == CC_IR_VOID) { valid = false; break; }
+                slot->type == CC_IR_VOID ||
+                !valid_type(module, slot->type)) { valid = false; break; }
             slot_types[slot_count++] = slot->type;
         }
         if (slot_count != fn->slot_count) valid = false;
@@ -184,7 +276,9 @@ bool cc_ir_verify(const CcIrModule *module, CcIrError *error)
              reg != NULL && valid; reg = reg->next) {
             if (reg->id != register_count ||
                 reg->id >= fn->register_count ||
-                reg->type == CC_IR_VOID || reg->block >= fn->block_count) {
+                reg->type == CC_IR_VOID ||
+                !valid_type(module, reg->type) ||
+                reg->block >= fn->block_count) {
                 valid = false; break;
             }
             register_count++;

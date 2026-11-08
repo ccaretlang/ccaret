@@ -1,0 +1,12 @@
+fn pair(n: i32) -> (bool, i32) {
+    return (n > 0, n);
+}
+
+fn main() -> i32 {
+    let value = (pair(5), false || true, true && true);
+    let ((positive, number), ready, valid) = value;
+    if positive && ready && valid {
+        return number + 37;
+    }
+    return 0;
+}

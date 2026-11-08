@@ -1,0 +1,7 @@
+fn main() -> i32 {
+    let pair: (i32, ?i32) = (-2147483648, some(2147483647));
+    if pair.0 == -2147483648 {
+        return 42;
+    }
+    return 0;
+}

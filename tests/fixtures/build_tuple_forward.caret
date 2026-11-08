@@ -1,0 +1,8 @@
+fn main() -> i32 {
+    let (a, b) = later((40, 2));
+    return a + b;
+}
+
+fn later(value: (i32, i32)) -> (i32, i32) {
+    return value;
+}
