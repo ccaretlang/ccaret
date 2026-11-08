@@ -26,7 +26,8 @@ typedef enum {
 typedef enum {
     CC_AST_STATEMENT_RETURN,
     CC_AST_STATEMENT_LET,
-    CC_AST_STATEMENT_EXPRESSION
+    CC_AST_STATEMENT_EXPRESSION,
+    CC_AST_STATEMENT_ASSIGNMENT
 } CcStatementKind;
 
 typedef enum {
@@ -110,6 +111,10 @@ struct CcStatement {
             CcExpression *initializer;
         } let;
         CcExpression *expression;
+        struct {
+            CcExpression *target;
+            CcExpression *value;
+        } assignment;
     };
 };
 

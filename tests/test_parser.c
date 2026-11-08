@@ -380,6 +380,36 @@ static void test_expression_statements(void)
     fixture_destroy(&fixture);
 }
 
+static void test_assignment_statement(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { x = y + 1; }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_ASSIGNMENT);
+    assert(statement->next == NULL);
+    assert(statement->span.start == 9 && statement->span.end == 19);
+    assert(statement->assignment.target != NULL);
+    assert(statement->assignment.target->kind ==
+           CC_AST_EXPRESSION_IDENTIFIER);
+    assert(statement->assignment.target->span.start == 9);
+    assert(statement->assignment.target->span.end == 10);
+    assert(statement->assignment.value != NULL);
+    assert(statement->assignment.value->kind == CC_AST_EXPRESSION_BINARY);
+    assert(statement->assignment.value->span.start == 13);
+    assert(statement->assignment.value->span.end == 18);
+
+    fixture_destroy(&fixture);
+}
+
 static void test_parse_errors(void)
 {
     static const char *const invalid[] = {
@@ -402,7 +432,10 @@ static void test_parse_errors(void)
         "fn f() { let x = ; }",
         "fn f() { let x: i32 = 1",
         "fn f() { var x: = 1; }",
-        "fn f() { let (x, y) = x; }"
+        "fn f() { let (x, y) = x; }",
+        "fn f() { x = ; }",
+        "fn f() { x = 1 }",
+        "fn f() { = 1; }"
     };
 
     ParserFixture fixture;
@@ -447,6 +480,7 @@ int main(void)
     test_let_statement_with_type();
     test_var_statement_inferred();
     test_expression_statements();
+    test_assignment_statement();
     test_parse_errors();
     test_empty_source_without_functions();
 
