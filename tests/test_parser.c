@@ -397,6 +397,7 @@ static void test_assignment_statement(void)
     assert(statement->kind == CC_AST_STATEMENT_ASSIGNMENT);
     assert(statement->next == NULL);
     assert(statement->span.start == 9 && statement->span.end == 19);
+    assert(statement->assignment.operator == CC_AST_ASSIGNMENT_ASSIGN);
     assert(statement->assignment.target != NULL);
     assert(statement->assignment.target->kind ==
            CC_AST_EXPRESSION_IDENTIFIER);
@@ -406,6 +407,51 @@ static void test_assignment_statement(void)
     assert(statement->assignment.value->kind == CC_AST_EXPRESSION_BINARY);
     assert(statement->assignment.value->span.start == 13);
     assert(statement->assignment.value->span.end == 18);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_compound_assignment_statements(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { x += 1; y >>= 2; }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *first = function->body->first;
+
+    assert(first != NULL);
+    assert(first->kind == CC_AST_STATEMENT_ASSIGNMENT);
+    assert(first->span.start == 9 && first->span.end == 16);
+    assert(first->assignment.operator == CC_AST_ASSIGNMENT_PLUS);
+    assert(first->assignment.target != NULL);
+    assert(first->assignment.target->kind == CC_AST_EXPRESSION_IDENTIFIER);
+    assert(first->assignment.target->span.start == 9);
+    assert(first->assignment.target->span.end == 10);
+    assert(first->assignment.value != NULL);
+    assert(first->assignment.value->kind ==
+           CC_AST_EXPRESSION_INTEGER_LITERAL);
+    assert(first->assignment.value->integer_literal.value == 1);
+    assert(first->next != NULL);
+
+    CcStatement *second = first->next;
+
+    assert(second->kind == CC_AST_STATEMENT_ASSIGNMENT);
+    assert(second->span.start == 17 && second->span.end == 25);
+    assert(second->assignment.operator == CC_AST_ASSIGNMENT_SHIFT_RIGHT);
+    assert(second->assignment.target != NULL);
+    assert(second->assignment.target->kind == CC_AST_EXPRESSION_IDENTIFIER);
+    assert(second->assignment.target->span.start == 17);
+    assert(second->assignment.target->span.end == 18);
+    assert(second->assignment.value != NULL);
+    assert(second->assignment.value->kind ==
+           CC_AST_EXPRESSION_INTEGER_LITERAL);
+    assert(second->assignment.value->integer_literal.value == 2);
+    assert(second->next == NULL);
 
     fixture_destroy(&fixture);
 }
@@ -435,7 +481,10 @@ static void test_parse_errors(void)
         "fn f() { let (x, y) = x; }",
         "fn f() { x = ; }",
         "fn f() { x = 1 }",
-        "fn f() { = 1; }"
+        "fn f() { = 1; }",
+        "fn f() { x = y = 1; }",
+        "fn f() { x += ; }",
+        "fn f() { x += 1 }"
     };
 
     ParserFixture fixture;
@@ -481,6 +530,7 @@ int main(void)
     test_var_statement_inferred();
     test_expression_statements();
     test_assignment_statement();
+    test_compound_assignment_statements();
     test_parse_errors();
     test_empty_source_without_functions();
 

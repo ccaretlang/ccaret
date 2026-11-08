@@ -30,6 +30,25 @@ typedef struct {
     CcUnaryOperator operator;
 } CcUnaryOperatorInfo;
 
+typedef struct {
+    CcTokenKind token_kind;
+    CcAssignmentOperator operator;
+} CcAssignmentOperatorInfo;
+
+static const CcAssignmentOperatorInfo assignment_operators[] = {
+    { CC_TOKEN_ASSIGN, CC_AST_ASSIGNMENT_ASSIGN },
+    { CC_TOKEN_PLUS_ASSIGN, CC_AST_ASSIGNMENT_PLUS },
+    { CC_TOKEN_MINUS_ASSIGN, CC_AST_ASSIGNMENT_MINUS },
+    { CC_TOKEN_STAR_ASSIGN, CC_AST_ASSIGNMENT_STAR },
+    { CC_TOKEN_SLASH_ASSIGN, CC_AST_ASSIGNMENT_SLASH },
+    { CC_TOKEN_PERCENT_ASSIGN, CC_AST_ASSIGNMENT_PERCENT },
+    { CC_TOKEN_AMP_ASSIGN, CC_AST_ASSIGNMENT_AMP },
+    { CC_TOKEN_PIPE_ASSIGN, CC_AST_ASSIGNMENT_PIPE },
+    { CC_TOKEN_CARET_ASSIGN, CC_AST_ASSIGNMENT_CARET },
+    { CC_TOKEN_SHIFT_LEFT_ASSIGN, CC_AST_ASSIGNMENT_SHIFT_LEFT },
+    { CC_TOKEN_SHIFT_RIGHT_ASSIGN, CC_AST_ASSIGNMENT_SHIFT_RIGHT }
+};
+
 static const CcBinaryOperatorInfo binary_operators[] = {
     { CC_TOKEN_OR_OR, CC_AST_BINARY_OPERATOR_OR_OR, PREC_OR_OR },
     { CC_TOKEN_AND_AND, CC_AST_BINARY_OPERATOR_AND_AND, PREC_AND_AND },
@@ -141,6 +160,19 @@ static const CcUnaryOperatorInfo *unary_operator_info(CcTokenKind kind)
          i++) {
         if (unary_operators[i].token_kind == kind)
             return &unary_operators[i];
+    }
+
+    return NULL;
+}
+
+static const CcAssignmentOperatorInfo *assignment_operator_info(
+    CcTokenKind kind)
+{
+    for (size_t i = 0;
+         i < sizeof(assignment_operators) / sizeof(assignment_operators[0]);
+         i++) {
+        if (assignment_operators[i].token_kind == kind)
+            return &assignment_operators[i];
     }
 
     return NULL;
@@ -530,7 +562,10 @@ static CcBlock *parse_block(CcParser *parser)
         CcToken semicolon;
         CcStatement *statement = NULL;
 
-        if (parser->current.kind == CC_TOKEN_ASSIGN) {
+        const CcAssignmentOperatorInfo *assignment =
+            assignment_operator_info(parser->current.kind);
+
+        if (assignment != NULL) {
             advance(parser);
 
             CcExpression *value = parse_expression(parser);
@@ -545,6 +580,7 @@ static CcBlock *parse_block(CcParser *parser)
             if (statement == NULL) break;
 
             statement->kind = CC_AST_STATEMENT_ASSIGNMENT;
+            statement->assignment.operator = assignment->operator;
             statement->assignment.target = expression;
             statement->assignment.value = value;
         } else {

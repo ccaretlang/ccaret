@@ -62,6 +62,20 @@ typedef enum {
     CC_AST_BINARY_OPERATOR_OR_OR
 } CcBinaryOperator;
 
+typedef enum {
+    CC_AST_ASSIGNMENT_ASSIGN,
+    CC_AST_ASSIGNMENT_PLUS,
+    CC_AST_ASSIGNMENT_MINUS,
+    CC_AST_ASSIGNMENT_STAR,
+    CC_AST_ASSIGNMENT_SLASH,
+    CC_AST_ASSIGNMENT_PERCENT,
+    CC_AST_ASSIGNMENT_AMP,
+    CC_AST_ASSIGNMENT_PIPE,
+    CC_AST_ASSIGNMENT_CARET,
+    CC_AST_ASSIGNMENT_SHIFT_LEFT,
+    CC_AST_ASSIGNMENT_SHIFT_RIGHT
+} CcAssignmentOperator;
+
 struct CcType {
     CcTypeKind kind;
     CcSourceSpan span;
@@ -112,6 +126,7 @@ struct CcStatement {
         } let;
         CcExpression *expression;
         struct {
+            CcAssignmentOperator operator;
             CcExpression *target;
             CcExpression *value;
         } assignment;
