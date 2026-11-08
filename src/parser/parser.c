@@ -349,51 +349,80 @@ static CcExpression *parse_postfix(CcParser *parser)
 
     if (parser->failed || expression == NULL) return NULL;
 
-    while (parser->current.kind == CC_TOKEN_LPAREN) {
-        advance(parser);
+    for (;;) {
+        if (parser->current.kind == CC_TOKEN_LPAREN) {
+            advance(parser);
 
-        CcCallArgument *arguments = NULL;
-        CcCallArgument **link = &arguments;
+            CcCallArgument *arguments = NULL;
+            CcCallArgument **link = &arguments;
 
-        if (parser->current.kind != CC_TOKEN_RPAREN) {
-            for (;;) {
-                CcExpression *argument = parse_expression(parser);
+            if (parser->current.kind != CC_TOKEN_RPAREN) {
+                for (;;) {
+                    CcExpression *argument = parse_expression(parser);
 
-                if (parser->failed || argument == NULL) return NULL;
+                    if (parser->failed || argument == NULL) return NULL;
 
-                CcCallArgument *node = allocate(parser, sizeof(*node));
+                    CcCallArgument *node = allocate(parser, sizeof(*node));
 
-                if (node == NULL) return NULL;
+                    if (node == NULL) return NULL;
 
-                node->value = argument;
-                node->next = NULL;
-                *link = node;
-                link = &node->next;
+                    node->value = argument;
+                    node->next = NULL;
+                    *link = node;
+                    link = &node->next;
 
-                if (parser->current.kind != CC_TOKEN_COMMA) break;
+                    if (parser->current.kind != CC_TOKEN_COMMA) break;
 
-                advance(parser);
+                    advance(parser);
+                }
             }
+
+            CcToken rparen;
+
+            if (!expect(parser, CC_TOKEN_RPAREN,
+                        "expected `)` after arguments", &rparen))
+                return NULL;
+
+            CcExpression *call = allocate(parser, sizeof(*call));
+
+            if (call == NULL) return NULL;
+
+            call->kind = CC_AST_EXPRESSION_CALL;
+            call->span.file_id = expression->span.file_id;
+            call->span.start = expression->span.start;
+            call->span.end = rparen.span.end;
+            call->call.callee = expression;
+            call->call.arguments = arguments;
+
+            expression = call;
+            continue;
         }
 
-        CcToken rparen;
+        if (parser->current.kind == CC_TOKEN_DOT) {
+            advance(parser);
 
-        if (!expect(parser, CC_TOKEN_RPAREN, "expected `)` after arguments",
-                    &rparen))
-            return NULL;
+            CcToken name;
 
-        CcExpression *call = allocate(parser, sizeof(*call));
+            if (!expect(parser, CC_TOKEN_IDENTIFIER,
+                        "expected member name", &name))
+                return NULL;
 
-        if (call == NULL) return NULL;
+            CcExpression *member = allocate(parser, sizeof(*member));
 
-        call->kind = CC_AST_EXPRESSION_CALL;
-        call->span.file_id = expression->span.file_id;
-        call->span.start = expression->span.start;
-        call->span.end = rparen.span.end;
-        call->call.callee = expression;
-        call->call.arguments = arguments;
+            if (member == NULL) return NULL;
 
-        expression = call;
+            member->kind = CC_AST_EXPRESSION_MEMBER;
+            member->span.file_id = expression->span.file_id;
+            member->span.start = expression->span.start;
+            member->span.end = name.span.end;
+            member->member.operand = expression;
+            member->member.name = name.span;
+
+            expression = member;
+            continue;
+        }
+
+        break;
     }
 
     return expression;

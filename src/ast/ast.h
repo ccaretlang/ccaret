@@ -22,7 +22,8 @@ typedef enum {
     CC_AST_EXPRESSION_PARENTHESIZED,
     CC_AST_EXPRESSION_UNARY,
     CC_AST_EXPRESSION_BINARY,
-    CC_AST_EXPRESSION_CALL
+    CC_AST_EXPRESSION_CALL,
+    CC_AST_EXPRESSION_MEMBER
 } CcExpressionKind;
 
 typedef enum {
@@ -120,6 +121,10 @@ struct CcExpression {
             CcExpression *callee;
             CcCallArgument *arguments;
         } call;
+        struct {
+            CcExpression *operand;
+            CcSourceSpan name;
+        } member;
     };
 };
 

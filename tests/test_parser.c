@@ -568,6 +568,93 @@ static void test_nested_call_expression(void)
     fixture_destroy(&fixture);
 }
 
+static void test_member_access_chain(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { p.q.r; }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_EXPRESSION);
+    assert(statement->span.start == 9 && statement->span.end == 15);
+
+    CcExpression *outer = statement->expression;
+
+    assert(outer != NULL);
+    assert(outer->kind == CC_AST_EXPRESSION_MEMBER);
+    assert(outer->span.start == 9 && outer->span.end == 14);
+    assert(outer->member.name.start == 13);
+    assert(outer->member.name.end == 14);
+
+    CcExpression *inner = outer->member.operand;
+
+    assert(inner != NULL);
+    assert(inner->kind == CC_AST_EXPRESSION_MEMBER);
+    assert(inner->span.start == 9 && inner->span.end == 12);
+    assert(inner->member.name.start == 11);
+    assert(inner->member.name.end == 12);
+    assert(inner->member.operand != NULL);
+    assert(inner->member.operand->kind == CC_AST_EXPRESSION_IDENTIFIER);
+    assert(inner->member.operand->span.start == 9);
+    assert(inner->member.operand->span.end == 10);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_member_call_member_chain(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { p.f(1).q; }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_EXPRESSION);
+    assert(statement->span.start == 9 && statement->span.end == 18);
+
+    CcExpression *outer = statement->expression;
+
+    assert(outer != NULL);
+    assert(outer->kind == CC_AST_EXPRESSION_MEMBER);
+    assert(outer->span.start == 9 && outer->span.end == 17);
+    assert(outer->member.name.start == 16);
+    assert(outer->member.name.end == 17);
+    assert(outer->member.operand != NULL);
+
+    CcExpression *call = outer->member.operand;
+
+    assert(call->kind == CC_AST_EXPRESSION_CALL);
+    assert(call->span.start == 9 && call->span.end == 15);
+    assert(call->call.arguments != NULL);
+    assert(call->call.arguments->next == NULL);
+    assert(call->call.arguments->value != NULL);
+    assert(call->call.arguments->value->kind ==
+           CC_AST_EXPRESSION_INTEGER_LITERAL);
+
+    CcExpression *callee = call->call.callee;
+
+    assert(callee != NULL);
+    assert(callee->kind == CC_AST_EXPRESSION_MEMBER);
+    assert(callee->span.start == 9 && callee->span.end == 12);
+    assert(callee->member.name.start == 11);
+    assert(callee->member.name.end == 12);
+
+    fixture_destroy(&fixture);
+}
+
 static void test_parse_errors(void)
 {
     static const char *const invalid[] = {
@@ -599,7 +686,8 @@ static void test_parse_errors(void)
         "fn f() { x += 1 }",
         "fn f() { g(1, ); }",
         "fn f() { g(1 }",
-        "fn f() { g(; }"
+        "fn f() { g(; }",
+        "fn f() { p.; }"
     };
 
     ParserFixture fixture;
@@ -649,6 +737,8 @@ int main(void)
     test_call_expression_with_arguments();
     test_call_expression_without_arguments();
     test_nested_call_expression();
+    test_member_access_chain();
+    test_member_call_member_chain();
     test_parse_errors();
     test_empty_source_without_functions();
 
