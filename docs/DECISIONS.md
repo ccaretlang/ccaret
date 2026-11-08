@@ -25,7 +25,7 @@
 | P-004 | `*T` is a non-null raw pointer, `?*T` is nullable. | Aliasing, provenance, reference safety. |
 | P-005 | Ordinary structs and tuples have copy semantics. | Ownership and resource contracts. |
 | P-006 | `?T`, `Result<T,E>`, `try`, `defer`, `errdefer`. | Failure paths and cleanup edge cases. |
-| P-007 | One file per module, acyclic imports for now. | Package and project layout, search roots. |
+| P-007 | One file per module, acyclic imports for now. | Bootstrap subset implemented for local root-relative source graphs, aliased imports and `pub` checks; final package layout, search roots and separate compilation remain open. |
 | P-008 | Typed non-SSA IR with explicit blocks. | Aggregate merges and ABI lowering. |
 | P-009 | UTF-8 source with ASCII identifiers for now. | Future Unicode policy. |
 | P-010 | Generated C17 plus optional target-specific extensions. | Target compatibility declarations. |

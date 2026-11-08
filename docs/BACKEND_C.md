@@ -61,6 +61,11 @@ entry point is `fn main() -> i32`.
   arithmetic. Struct parameters and results, empty structs, value copies
   and nesting with tuples/optionals/arrays are supported. Different
   named structs are never structurally interchangeable.
+- Local acyclic source modules with `module`, `import` (optionally
+  `as`-aliased), `pub` and cross-module functions/structs. Module
+  resolution checks explicit names and visibility before lowering. One
+  canonical linked source unit passes through the same verified IR and
+  C17 emitter.
 - Arguments are lowered left-to-right before the C function call, so the
   generated C's unspecified argument evaluation order has no effect.
   Tuple elements are similarly sequenced before construction.
@@ -103,8 +108,11 @@ arbitrary `usize` arithmetic and indexed targets other than a named
 mutable array local are not yet supported.
 Nested struct field writes (`object.child.value = x`) are not yet
 supported; directly assigned struct fields must belong to a `var`
-local. Recursive struct value types are disallowed. Struct visibility
-between modules and C foreign-function layout are not implemented.
+local. Recursive struct value types are disallowed. Modules currently
+use one source file per dotted path and a root inferred from the entry
+filename. Imported public structs require all fields to be `pub`;
+opaque imported structs, import re-exports, package search roots and
+C foreign-function layout are not implemented. See [MODULES.md](MODULES.md).
 Some unsupported constructs already parse and type-check, but fail
 explicitly at IR lowering rather than producing a misleading executable.
 
@@ -130,3 +138,5 @@ field writes, checked overflow traps and invalid declarations.
 The IR unit suite
 deliberately mutates valid IR to test refusal of malformed instructions,
 types, constructors, projections and terminators.
+Multi-file tests check optimized executables, transitive imports,
+namespace isolation, visibility, dependency failures and error locations.

@@ -22,6 +22,13 @@ typedef struct CcFunctionDeclaration CcFunctionDeclaration;
 typedef struct CcStructDeclaration CcStructDeclaration;
 typedef struct CcStructField CcStructField;
 typedef struct CcStructFieldValue CcStructFieldValue;
+typedef struct CcImportDeclaration CcImportDeclaration;
+
+struct CcImportDeclaration {
+    CcSourceSpan path;
+    CcSourceSpan alias;   /* Last component when no explicit 'as' alias. */
+    CcImportDeclaration *next;
+};
 
 typedef enum {
     CC_AST_TYPE_NAMED,
@@ -170,6 +177,7 @@ struct CcStructFieldValue {
 struct CcStructField {
     CcSourceSpan name;
     CcType *type;
+    bool is_public;
     CcStructField *next;
 };
 

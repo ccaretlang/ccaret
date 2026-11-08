@@ -543,7 +543,9 @@ static CcExpression *parse_postfix(CcParser *parser)
                            second.kind == CC_TOKEN_COLON;
         }
         if (parser->current.kind == CC_TOKEN_LBRACE &&
-            expression->kind == CC_AST_EXPRESSION_IDENTIFIER &&
+            (expression->kind == CC_AST_EXPRESSION_IDENTIFIER ||
+             (expression->kind == CC_AST_EXPRESSION_MEMBER &&
+              expression->member.operand->kind == CC_AST_EXPRESSION_IDENTIFIER)) &&
             (!parser->before_block || named_fields)) {
             advance(parser);
             CcStructFieldValue *fields = NULL;
@@ -580,7 +582,9 @@ static CcExpression *parse_postfix(CcParser *parser)
             literal->kind = CC_AST_EXPRESSION_STRUCT;
             literal->span = expression->span;
             literal->span.end = end.span.end;
-            literal->struct_literal.name = expression->identifier_name;
+            literal->struct_literal.name = expression->kind ==
+                CC_AST_EXPRESSION_IDENTIFIER
+                    ? expression->identifier_name : expression->span;
             literal->struct_literal.fields = fields;
             expression = literal;
             continue;
@@ -947,6 +951,14 @@ static CcType *parse_type(CcParser *parser)
 
     type->kind = CC_AST_TYPE_NAMED;
     type->span = name.span;
+    if (parser->current.kind == CC_TOKEN_DOT) {
+        advance(parser);
+        CcToken member;
+        if (!expect(parser, CC_TOKEN_IDENTIFIER,
+                    "expected imported type after `.`", &member))
+            return NULL;
+        type->span.end = member.span.end;
+    }
     type->pointer_pointee_const = false;
     type->slice_element_const = false;
     type->optional_inner = NULL;
@@ -1632,6 +1644,7 @@ static CcFunctionDeclaration *parse_struct(CcParser *parser)
     CcStructField *fields = NULL;
     CcStructField **link = &fields;
     while (parser->current.kind != CC_TOKEN_RBRACE) {
+        bool public_field = accept(parser, CC_TOKEN_KW_PUB, NULL);
         CcToken field_name;
         if (!expect(parser, CC_TOKEN_IDENTIFIER,
                     "expected field name", &field_name))
@@ -1645,6 +1658,7 @@ static CcFunctionDeclaration *parse_struct(CcParser *parser)
         if (field == NULL) return NULL;
         field->name = field_name.span;
         field->type = type;
+        field->is_public = public_field;
         field->next = NULL;
         *link = field;
         link = &field->next;
@@ -1675,6 +1689,25 @@ static CcFunctionDeclaration *parse_struct(CcParser *parser)
     return item;
 }
 
+static bool parse_module_path(CcParser *parser, CcSourceSpan *path,
+                              CcSourceSpan *last)
+{
+    CcToken name;
+    if (!expect(parser, CC_TOKEN_IDENTIFIER,
+                "expected module path", &name))
+        return false;
+    *path = name.span;
+    *last = name.span;
+    while (accept(parser, CC_TOKEN_DOT, NULL)) {
+        if (!expect(parser, CC_TOKEN_IDENTIFIER,
+                    "expected module path component", &name))
+            return false;
+        path->end = name.span.end;
+        *last = name.span;
+    }
+    return true;
+}
+
 void cc_parser_init(CcParser *parser, CcLexer *lexer, CcArena *arena)
 {
     if (parser == NULL) return;
@@ -1684,6 +1717,10 @@ void cc_parser_init(CcParser *parser, CcLexer *lexer, CcArena *arena)
     parser->failed = false;
     parser->error = NULL;
     parser->before_block = false;
+    parser->has_module = false;
+    parser->imports = NULL;
+    parser->module_path = (CcSourceSpan){ CC_FILE_ID_INVALID, 0, 0 };
+    parser->header_end = 0;
     parser->error_span.file_id = CC_FILE_ID_INVALID;
     parser->error_span.start = 0;
     parser->error_span.end = 0;
@@ -1708,8 +1745,55 @@ CcFunctionDeclaration *cc_parser_parse_program(CcParser *parser)
 
     CcFunctionDeclaration *first = NULL;
     CcFunctionDeclaration **link = &first;
+    if (accept(parser, CC_TOKEN_KW_MODULE, NULL)) {
+        CcSourceSpan last;
+        if (!parse_module_path(parser, &parser->module_path, &last))
+            return NULL;
+        CcToken semicolon;
+        if (!expect(parser, CC_TOKEN_SEMICOLON,
+                    "expected `;` after module path", &semicolon))
+            return NULL;
+        parser->has_module = true;
+        parser->header_end = semicolon.span.end;
+    }
+    CcImportDeclaration **import_link = &parser->imports;
+    while (!parser->failed &&
+           parser->current.kind == CC_TOKEN_KW_IMPORT) {
+        if (!parser->has_module) {
+            report_error(parser, "import requires module declaration");
+            return NULL;
+        }
+        advance(parser);
+        CcSourceSpan path, last;
+        if (!parse_module_path(parser, &path, &last)) return NULL;
+        CcSourceSpan alias = last;
+        if (accept(parser, CC_TOKEN_KW_AS, NULL)) {
+            CcToken name;
+            if (!expect(parser, CC_TOKEN_IDENTIFIER,
+                        "expected import alias", &name))
+                return NULL;
+            alias = name.span;
+        }
+        CcToken semicolon;
+        if (!expect(parser, CC_TOKEN_SEMICOLON,
+                    "expected `;` after import", &semicolon))
+            return NULL;
+        CcImportDeclaration *node = allocate(parser, sizeof(*node));
+        if (node == NULL) return NULL;
+        node->path = path;
+        node->alias = alias;
+        node->next = NULL;
+        *import_link = node;
+        import_link = &node->next;
+        parser->header_end = semicolon.span.end;
+    }
 
     while (!parser->failed && parser->current.kind != CC_TOKEN_EOF) {
+        if (parser->current.kind == CC_TOKEN_KW_IMPORT ||
+            parser->current.kind == CC_TOKEN_KW_MODULE) {
+            report_error(parser, "module and imports must precede declarations");
+            break;
+        }
         if (parser->current.kind != CC_TOKEN_KW_FN &&
             parser->current.kind != CC_TOKEN_KW_STRUCT &&
             parser->current.kind != CC_TOKEN_KW_PUB) {

@@ -33,6 +33,15 @@ forward, self-referential or duplicate composite definitions. `emit-ir`
 prints type definitions such as `type t3 = (i32, bool)`,
 `type t4 = ?t3` and `type t5 = struct Point { x: i32, y: i32 }`.
 
+For source-level `module`/`import` graphs, the bootstrap linker
+resolves public symbols and namespaces **before** lowering, producing
+one canonical source unit that still undergoes semantic analysis and
+independent IR verification. Imported function/struct names are
+internalized with collision-free names; the entry module's `main`
+remains the executable entry point. Type and function IDs belong to the
+linked compilation unit. An independent multi-unit IR linker is not
+implemented yet.
+
 ## Implemented instruction families
 
 | Category | Operations |
@@ -132,3 +141,7 @@ tuple/optional propagation, the executable
 `divmod` tuple-return example, and intentionally corrupted IR. A stable
 external ABI for aggregates, `match`, cleanup, aliasing and full IR
 optimization remain future work.
+
+Module tests also cover cross-source public calls/struct values, aliases,
+dependency cycles, privacy checks, originating-file diagnostics and
+optimized generated C17 builds.

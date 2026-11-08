@@ -2845,6 +2845,53 @@ static void test_struct_syntax(void)
     fixture_destroy(&f);
 }
 
+static void test_module_headers_and_qualified_names(void)
+{
+    ParserFixture f;
+    fixture_init(&f,
+        "module app.main;"
+        "import lib.math as math;"
+        "import lib.geometry;"
+        "fn main() -> i32 {"
+        " let p: geometry.Point = geometry.Point { y: 22, x: 20 };"
+        " return math.sum(p.x, p.y); }");
+    CcFunctionDeclaration *fn = cc_parser_parse_program(&f.parser);
+    assert(fn != NULL && !f.parser.failed);
+    assert(f.parser.has_module);
+    assert(f.parser.imports != NULL &&
+           f.parser.imports->next != NULL &&
+           f.parser.imports->next->next == NULL);
+    assert(fn->body != NULL && fn->next == NULL);
+    const CcStatement *binding = fn->body->first;
+    assert(binding != NULL && binding->let.type->kind == CC_AST_TYPE_NAMED);
+    assert(binding->let.initializer->kind == CC_AST_EXPRESSION_STRUCT);
+    const CcSourceFile *file =
+        cc_source_get(&f.sources, f.id);
+    CcSourceSpan qualified = binding->let.type->span;
+    assert(qualified.end - qualified.start == strlen("geometry.Point"));
+    assert(memcmp(file->bytes + qualified.start, "geometry.Point",
+                  strlen("geometry.Point")) == 0);
+    qualified = binding->let.initializer->struct_literal.name;
+    assert(qualified.end - qualified.start == strlen("geometry.Point"));
+    const CcExpression *call = binding->next->return_expression;
+    assert(call->kind == CC_AST_EXPRESSION_CALL &&
+           call->call.callee->kind == CC_AST_EXPRESSION_MEMBER);
+    fixture_destroy(&f);
+
+    fixture_init(&f, "import lib.math; fn main() -> i32 { return 0; }");
+    cc_parser_parse_program(&f.parser);
+    assert(f.parser.failed);
+    assert(strcmp(f.parser.error, "import requires module declaration") == 0);
+    fixture_destroy(&f);
+
+    fixture_init(&f, "module app.main; fn f() {} import lib.math;");
+    cc_parser_parse_program(&f.parser);
+    assert(f.parser.failed);
+    assert(strcmp(f.parser.error,
+                  "module and imports must precede declarations") == 0);
+    fixture_destroy(&f);
+}
+
 int main(void)
 {
     test_simple_function();
@@ -2920,6 +2967,7 @@ int main(void)
     test_for_unterminated_body();
     test_array_literals();
     test_struct_syntax();
+    test_module_headers_and_qualified_names();
     test_parse_errors();
     test_empty_source_without_functions();
 

@@ -9,11 +9,16 @@ and `build` commands work for their documented subset. Source programs
 using `i32`, `bool`, `void`, nested tuple values and optional
 `?T` construction/propagation, `i32` bitwise and wrapping arithmetic,
 checked compound updates, integer `for` ranges, fixed arrays `[N]T`
-with checked indexing and nominal struct values
+with checked indexing, nominal struct values and locally imported
+`pub` functions/structs
 can become GCC-compiled executables. The frontend supports additional
 syntax and types that are **not yet lowerable**, including optional
 unwrapping/pattern matching. See
 [SEMANTIC.md](SEMANTIC.md) and [BACKEND_C.md](BACKEND_C.md).
+The local module linker builds an acyclic dependency graph, applies
+AST-guided namespace resolution and submits an internal canonical source
+unit to the same semantic/IR/verifier/backend pipeline. Original file
+locations are preserved in a diagnostic map; see [MODULES.md](MODULES.md).
 
 ## Planned architecture
 

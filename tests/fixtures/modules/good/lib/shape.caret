@@ -1,0 +1,9 @@
+module lib.shape;
+
+pub struct Point { pub x: i32, pub y: i32, }
+
+pub fn move_x(p: Point, amount: i32) -> Point {
+    return Point { x: p.x + amount, y: p.y };
+}
+
+struct Hidden { n: i32 }

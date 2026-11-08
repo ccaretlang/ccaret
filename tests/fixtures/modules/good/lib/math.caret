@@ -1,0 +1,9 @@
+module lib.math;
+
+import lib.base as base;
+
+pub fn sum(a: i32, b: i32) -> i32 {
+    return base.plus(a, b);
+}
+
+fn internal() -> i32 { return 99; }

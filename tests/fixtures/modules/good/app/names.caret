@@ -1,0 +1,10 @@
+module app.names;
+
+import lib.alpha as a;
+import lib.beta as b;
+
+fn local() -> i32 { return a.value(); }
+
+fn main() -> i32 {
+    return local() + b.value();
+}

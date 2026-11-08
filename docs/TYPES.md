@@ -77,6 +77,13 @@ inside fixed arrays, tuples, optionals and other structs. Recursive
 by-value structures (direct or indirect) are rejected; pointers to
 recursive types await the later pointer milestone.
 
+Across local modules, `pub struct` exports a nominal type and `pub`
+on fields marks them visible. The current linker allows external use of
+a public struct only if **all** its fields are public. Opaque imports
+and selective field access are not yet supported. Public function
+signatures cannot expose private or nonexportable struct types. This
+is a bootstrap compiler limitation, not the final privacy model.
+
 An enum with a payload is a tagged sum and supports exhaustive `match`. A raw union has no tag. Reading a field that does not hold a valid value is the programmer's responsibility. Fields are private unless marked `pub`.
 
 Default aggregate layout is controlled by the compiler. `@repr(c)` asks for the target C layout. Layout constraints are in [ABI.md](ABI.md).

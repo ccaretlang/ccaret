@@ -13,7 +13,7 @@ IR_TEST_TARGET := build/test_ir
 SOURCES      := src/main.c src/source/source.c src/lexer/lexer.c \
 	src/parser/parser.c src/ast/arena.c src/semantic/semantic.c \
 	src/ir/lower.c src/ir/verify.c src/ir/print.c \
-	src/backend/c/emitter.c
+	src/backend/c/emitter.c src/module/link.c
 TEST_SOURCES := tests/test_source.c src/source/source.c
 LEXER_TEST_SOURCES := tests/test_lexer.c src/lexer/lexer.c src/source/source.c
 ARENA_TEST_SOURCES := tests/test_arena.c src/ast/arena.c
@@ -28,6 +28,7 @@ IR_TEST_SOURCES := tests/test_ir.c src/ir/lower.c src/ir/verify.c \
 	src/parser/parser.c src/lexer/lexer.c src/ast/arena.c src/source/source.c
 CLI_TEST     := tests/test_cli.sh
 BUILD_TEST   := tests/test_build.sh
+MODULE_TEST  := tests/test_modules.sh
 
 
 .PHONY: all check test clean
@@ -97,6 +98,7 @@ check: $(TARGET) $(TEST_TARGET) $(LEXER_TEST_TARGET) $(ARENA_TEST_TARGET) \
 	./$(IR_TEST_TARGET)
 	sh $(CLI_TEST)
 	sh $(BUILD_TEST)
+	sh $(MODULE_TEST)
 
 clean:
 	rm -rf build

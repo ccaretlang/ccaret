@@ -1,0 +1,10 @@
+module app.scoping;
+
+import lib.alpha as a;
+
+fn value() -> i32 { return 41; }
+
+fn main() -> i32 {
+    let value = 22;
+    return value + a.value();
+}

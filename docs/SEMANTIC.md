@@ -29,6 +29,11 @@ are arena-allocated; it does not yet annotate the AST with persistent
   duplicate type/field names, reject recursive value types and void fields,
   require every struct literal field exactly once, and check field reads,
   assignments and nominal type compatibility.
+- In modular files, enforce acyclic import graphs, namespace aliases and
+  `pub` visibility for imported functions/structs. Reject missing modules,
+  path/name mismatches, private uses and public interfaces exposing
+  private struct types. The initial imported-struct subset requires all
+  of its fields to be `pub`.
 - Track lexical scopes and the mutability of `let`/`var` bindings.
   Resolve identifiers, prevent duplicate bindings in the same scope, reject
   use before declaration, and check assignment type and mutability.
@@ -50,9 +55,11 @@ are arena-allocated; it does not yet annotate the AST with persistent
 
 ## Limits of this first pass
 
-- Not yet supported: enums, unions, generics, imports, C ABI aliases,
-  type aliases, and function values. Struct-level `pub` parses but
-  cross-module visibility and representation rules are not implemented.
+- Not yet supported: enums, unions, generics, C ABI aliases,
+  type aliases, and function values. The current module system uses one
+  file per module, local root-relative imports and `pub` visibility.
+  Opaque imported structs, selective field access and public C layouts
+  remain future work.
 - Pointer dereference/address-taking and other unsafe operations require a
   later safety-aware pass. The checker rejects those expressions explicitly.
 - Assignment targets are mutable local variables, single-level indexed

@@ -1,6 +1,7 @@
 #include "backend/c/emitter.h"
 #include "ir/ir.h"
 #include "lexer/lexer.h"
+#include "module/link.h"
 #include "parser/parser.h"
 #include "semantic/semantic.h"
 #include "source/source.h"
@@ -145,6 +146,20 @@ static void print_diagnostic(const char *path, const CcSourceFile *file,
             path, line, column, stage, message);
 }
 
+static void print_module_diagnostic(const CcSourceManager *sources,
+                                    const CcModuleLink *link,
+                                    CcSourceSpan span, const char *stage,
+                                    const char *message)
+{
+    CcSourceSpan original = cc_module_origin(link, span);
+    const CcSourceFile *source = cc_source_get(sources, original.file_id);
+    if (source == NULL) {
+        fprintf(stderr, "ccaret: %s: %s\n", stage, message);
+        return;
+    }
+    print_diagnostic(source->path, source, original, stage, message);
+}
+
 static int run_check(const char *path)
 {
     CcSourceManager sources;
@@ -167,24 +182,37 @@ static int run_check(const char *path)
 
     cc_lexer_init(&lexer, file, file_id);
     cc_arena_init(&arena);
+    CcModuleLink link;
+    CcModuleError module_error;
+    if (!cc_module_link(&sources, &arena, file_id, &link,
+                        &module_error)) {
+        print_module_diagnostic(&sources, NULL, module_error.span,
+            module_error.stage, module_error.message);
+        cc_arena_destroy(&arena);
+        cc_source_manager_destroy(&sources);
+        return 1;
+    }
+    file_id = link.linked_file;
+    file = cc_source_get(&sources, file_id);
+    cc_lexer_init(&lexer, file, file_id);
     cc_parser_init(&parser, &lexer, &arena);
     CcFunctionDeclaration *functions = cc_parser_parse_program(&parser);
 
     if (parser.failed) {
         if (parser.current.kind == CC_TOKEN_INVALID &&
             lexer.error != CC_LEX_ERROR_NONE)
-            print_diagnostic(path, file, parser.current.span, "lexer",
-                             cc_lex_error_message(lexer.error));
+            print_module_diagnostic(&sources, &link, parser.current.span,
+                                    "lexer", cc_lex_error_message(lexer.error));
         else
-            print_diagnostic(path, file, parser.error_span, "parser",
-                             parser.error);
+            print_module_diagnostic(&sources, &link, parser.error_span,
+                                    "parser", parser.error);
         status = 1;
     } else {
         CcSemanticError semantic_error;
 
         if (!cc_semantic_check(file, functions, &arena, &semantic_error)) {
-            print_diagnostic(path, file, semantic_error.span, "semantic",
-                             semantic_error.message);
+            print_module_diagnostic(&sources, &link, semantic_error.span,
+                                    "semantic", semantic_error.message);
             status = 1;
         }
     }
@@ -274,6 +302,16 @@ static int run_codegen(const char *command, const char *path,
         goto cleanup;
     }
     const CcSourceFile *file = cc_source_get(&sources, file_id);
+    CcModuleLink link;
+    CcModuleError module_error;
+    if (!cc_module_link(&sources, &arena, file_id, &link,
+                        &module_error)) {
+        print_module_diagnostic(&sources, NULL, module_error.span,
+            module_error.stage, module_error.message);
+        goto cleanup;
+    }
+    file_id = link.linked_file;
+    file = cc_source_get(&sources, file_id);
 
     cc_lexer_init(&lexer, file, file_id);
     cc_parser_init(&parser, &lexer, &arena);
@@ -281,21 +319,22 @@ static int run_codegen(const char *command, const char *path,
     if (parser.failed) {
         if (parser.current.kind == CC_TOKEN_INVALID &&
             lexer.error != CC_LEX_ERROR_NONE)
-            print_diagnostic(path, file, parser.current.span, "lexer",
-                             cc_lex_error_message(lexer.error));
+            print_module_diagnostic(&sources, &link, parser.current.span,
+                                    "lexer", cc_lex_error_message(lexer.error));
         else
-            print_diagnostic(path, file, parser.error_span, "parser",
-                             parser.error);
+            print_module_diagnostic(&sources, &link, parser.error_span,
+                                    "parser", parser.error);
         goto cleanup;
     }
     if (!cc_semantic_check(file, program, &arena, &semantic_error)) {
-        print_diagnostic(path, file, semantic_error.span, "semantic",
-                         semantic_error.message);
+        print_module_diagnostic(&sources, &link, semantic_error.span,
+                                "semantic", semantic_error.message);
         goto cleanup;
     }
     if (!cc_ir_lower(file, program, &arena, &module, &ir_error) ||
         !cc_ir_verify(module, &ir_error)) {
-        print_diagnostic(path, file, ir_error.span, "IR", ir_error.message);
+        print_module_diagnostic(&sources, &link, ir_error.span,
+                                "IR", ir_error.message);
         goto cleanup;
     }
     if (strcmp(command, "build") == 0) {
@@ -334,7 +373,8 @@ static int run_codegen(const char *command, const char *path,
     }
     if (!ok) {
         if (ir_error.message != NULL)
-            print_diagnostic(path, file, ir_error.span, "IR", ir_error.message);
+            print_module_diagnostic(&sources, &link, ir_error.span,
+                                    "IR", ir_error.message);
         else fprintf(stderr, "ccaret: output write failed\n");
         if (destination != NULL) remove(destination);
         goto cleanup;

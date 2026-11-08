@@ -13,6 +13,10 @@ typedef struct {
     CcSourceSpan error_span;
     const char *error;
     bool before_block;
+    bool has_module;
+    CcSourceSpan module_path;
+    CcImportDeclaration *imports;
+    uint32_t header_end;
 } CcParser;
 
 void cc_parser_init(CcParser *parser, CcLexer *lexer, CcArena *arena);

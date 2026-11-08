@@ -51,8 +51,12 @@
       `i32` indexing and mutable-local element updates.
 - [x] Nominal struct declarations, named-field literals, by-value
       calls/returns, field reads and direct mutable-local field writes.
-- [ ] Module imports, visibility enforcement and struct representation
-      attributes/foreign ABI.
+- [x] Local one-file modules, acyclic import graph, aliases, explicit
+      `pub` function/struct visibility and cross-module calls/values,
+      linked through verified IR and C17.
+- [ ] Full field visibility, opaque exported structs, multi-file module
+      units, package/search configuration, stable module ABI and
+      representation attributes.
 - [ ] Raw pointers, `unsafe`, C ABI declarations and function pointers.
 - [ ] Slices, bounds checks and layout intrinsics.
 

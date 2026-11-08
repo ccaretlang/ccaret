@@ -5,7 +5,7 @@
 ## Top level
 
 ```ebnf
-source_file   = module_decl, import_decl*, declaration*, EOF ;
+source_file   = (module_decl, import_decl*)?, declaration*, EOF ;
 module_decl   = "module", path, ";" ;
 import_decl   = "import", path, ("as", IDENTIFIER)?, ";" ;
 path          = IDENTIFIER, (".", IDENTIFIER)* ;
@@ -20,6 +20,14 @@ struct_decl   = "struct", IDENTIFIER, "{",
 type_decl     = "type", IDENTIFIER, "=", type, ";" ;
 block         = "{", statement*, expression?, "}" ;
 ```
+
+The executable bootstrap subset allows `module path;` followed by
+`import path;` or `import path as alias;`. A module header is required
+for imports, and imported names are qualified through the alias:
+`alias.function(...)`, `alias.Struct` or
+`alias.Struct { field: expression }`. For backward compatibility,
+single-file programs may still omit the module header. Module paths
+map to one file per module; see [MODULES.md](MODULES.md).
 
 Statements, expressions, patterns, types, generics and attributes need a full grammar before the parser API is frozen.
 

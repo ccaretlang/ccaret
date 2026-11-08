@@ -1,0 +1,11 @@
+module app.main;
+
+import lib.math as math;
+import lib.shape;
+
+pub fn main() -> i32 {
+    let point: shape.Point = shape.Point { y: 22, x: 19 };
+    let shifted = shape.move_x(point, 1);
+    let values: [2]i32 = [shifted.x, shifted.y];
+    return math.sum(values[0], values[1]);
+}
