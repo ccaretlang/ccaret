@@ -678,6 +678,91 @@ static void test_unterminated_byte_literal(void)
     fixture_destroy(&fixture);
 }
 
+static void test_none_literal(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { let x = none; return none; }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *first = function->body->first;
+
+    assert(first != NULL);
+    assert(first->kind == CC_AST_STATEMENT_LET);
+    assert(first->let.initializer != NULL);
+    assert(first->let.initializer->kind == CC_AST_EXPRESSION_NONE_LITERAL);
+    assert(first->let.initializer->span.file_id == fixture.id);
+    assert(first->let.initializer->span.start == 17);
+    assert(first->let.initializer->span.end == 21);
+
+    CcStatement *second = first->next;
+
+    assert(second != NULL);
+    assert(second->kind == CC_AST_STATEMENT_RETURN);
+    assert(second->return_expression != NULL);
+    assert(second->return_expression->kind == CC_AST_EXPRESSION_NONE_LITERAL);
+    assert(second->return_expression->span.start == 30);
+    assert(second->return_expression->span.end == 34);
+    assert(second->next == NULL);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_none_call_argument(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { f(none, true); }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_EXPRESSION);
+    assert(statement->expression != NULL);
+    assert(statement->expression->kind == CC_AST_EXPRESSION_CALL);
+
+    CcCallArgument *first = statement->expression->call.arguments;
+
+    assert(first != NULL);
+    assert(first->value->kind == CC_AST_EXPRESSION_NONE_LITERAL);
+    assert(first->value->span.start == 11 && first->value->span.end == 15);
+
+    CcCallArgument *second = first->next;
+
+    assert(second != NULL);
+    assert(second->value->kind == CC_AST_EXPRESSION_BOOLEAN_LITERAL);
+    assert(second->value->boolean_literal);
+    assert(second->next == NULL);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_none_missing_semicolon(void)
+{
+    static const char *source = "fn f() { return none";
+    ParserFixture fixture;
+
+    fixture_init(&fixture, source);
+
+    assert(cc_parser_parse_program(&fixture.parser) == NULL);
+    assert(fixture.parser.failed);
+    assert(fixture.parser.error != NULL);
+    assert(fixture.parser.error_span.file_id == fixture.id);
+    assert(fixture.parser.error_span.start == strlen(source));
+    assert(fixture.parser.error_span.end == strlen(source));
+
+    fixture_destroy(&fixture);
+}
+
 static void test_integer_overflow_is_recorded(void)
 {
     ParserFixture fixture;
@@ -1762,6 +1847,9 @@ static void test_parse_errors(void)
         "fn f() { return '\\q'; }",
         "fn f() { return '\\u{80}'; }",
         "fn f() { 'A' 'B'; }",
+        "fn f() { none none; }",
+        "fn f() { return none true; }",
+        "fn f() { return none +; }",
         "fn f() { let x; }",
         "fn f() { let 3 = 1; }",
         "fn f() { let x = ; }",
@@ -1853,6 +1941,9 @@ int main(void)
     test_byte_literal();
     test_byte_call_arguments();
     test_unterminated_byte_literal();
+    test_none_literal();
+    test_none_call_argument();
+    test_none_missing_semicolon();
     test_let_statement_with_type();
     test_var_statement_inferred();
     test_expression_statements();
