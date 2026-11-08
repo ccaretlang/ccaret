@@ -24,7 +24,8 @@ typedef enum {
 } CcExpressionKind;
 
 typedef enum {
-    CC_AST_STATEMENT_RETURN
+    CC_AST_STATEMENT_RETURN,
+    CC_AST_STATEMENT_LET
 } CcStatementKind;
 
 typedef enum {
@@ -101,6 +102,12 @@ struct CcStatement {
     CcStatement *next;
     union {
         CcExpression *return_expression;
+        struct {
+            CcSourceSpan name;
+            bool mutable;      /* `var` versus `let`. */
+            CcType *type;      /* NULL when the type is inferred. */
+            CcExpression *initializer;
+        } let;
     };
 };
 

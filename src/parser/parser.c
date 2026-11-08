@@ -429,6 +429,56 @@ static CcStatement *parse_return_statement(CcParser *parser)
     return statement;
 }
 
+static CcStatement *parse_let_statement(CcParser *parser)
+{
+    CcToken keyword = parser->current;
+    bool mutable = keyword.kind == CC_TOKEN_KW_VAR;
+
+    advance(parser);
+
+    CcToken name;
+
+    if (!expect(parser, CC_TOKEN_IDENTIFIER, "expected variable name", &name))
+        return NULL;
+
+    CcType *type = NULL;
+
+    if (accept(parser, CC_TOKEN_COLON, NULL)) {
+        type = parse_type(parser);
+
+        if (parser->failed || type == NULL) return NULL;
+    }
+
+    if (!expect(parser, CC_TOKEN_ASSIGN,
+                "expected `=` in variable declaration", NULL))
+        return NULL;
+
+    CcExpression *initializer = parse_expression(parser);
+
+    if (parser->failed || initializer == NULL) return NULL;
+
+    CcToken semicolon;
+
+    if (!expect(parser, CC_TOKEN_SEMICOLON, "expected `;`", &semicolon))
+        return NULL;
+
+    CcStatement *statement = allocate(parser, sizeof(*statement));
+
+    if (statement == NULL) return NULL;
+
+    statement->kind = CC_AST_STATEMENT_LET;
+    statement->span.file_id = keyword.span.file_id;
+    statement->span.start = keyword.span.start;
+    statement->span.end = semicolon.span.end;
+    statement->next = NULL;
+    statement->let.mutable = mutable;
+    statement->let.name = name.span;
+    statement->let.type = type;
+    statement->let.initializer = initializer;
+
+    return statement;
+}
+
 static CcBlock *parse_block(CcParser *parser)
 {
     CcToken lbrace;
@@ -454,6 +504,17 @@ static CcBlock *parse_block(CcParser *parser)
 
         if (parser->current.kind == CC_TOKEN_KW_RETURN) {
             CcStatement *statement = parse_return_statement(parser);
+
+            if (parser->failed || statement == NULL) break;
+
+            *link = statement;
+            link = &statement->next;
+            continue;
+        }
+
+        if (parser->current.kind == CC_TOKEN_KW_LET ||
+            parser->current.kind == CC_TOKEN_KW_VAR) {
+            CcStatement *statement = parse_let_statement(parser);
 
             if (parser->failed || statement == NULL) break;
 

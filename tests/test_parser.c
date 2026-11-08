@@ -275,6 +275,76 @@ static void test_integer_overflow_is_recorded(void)
     fixture_destroy(&fixture);
 }
 
+static void test_let_statement_with_type(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { let x: i32 = 1 + 2; }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_LET);
+    assert(statement->next == NULL);
+    assert(statement->span.start == 9 && statement->span.end == 28);
+    assert(statement->let.mutable == false);
+    assert(statement->let.name.start == 13 && statement->let.name.end == 14);
+    assert(statement->let.type != NULL);
+    assert(statement->let.type->kind == CC_AST_TYPE_NAMED);
+    assert(statement->let.type->span.start == 16);
+    assert(statement->let.type->span.end == 19);
+    assert(statement->let.initializer != NULL);
+    assert(statement->let.initializer->kind == CC_AST_EXPRESSION_BINARY);
+    assert(statement->let.initializer->span.start == 22);
+    assert(statement->let.initializer->span.end == 27);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_var_statement_inferred(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { var y = 2; return y; }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *first = function->body->first;
+
+    assert(first != NULL);
+    assert(first->kind == CC_AST_STATEMENT_LET);
+    assert(first->span.start == 9 && first->span.end == 19);
+    assert(first->let.mutable == true);
+    assert(first->let.name.start == 13 && first->let.name.end == 14);
+    assert(first->let.type == NULL);
+    assert(first->let.initializer != NULL);
+    assert(first->let.initializer->kind ==
+           CC_AST_EXPRESSION_INTEGER_LITERAL);
+    assert(first->let.initializer->integer_literal.value == 2);
+
+    CcStatement *second = first->next;
+
+    assert(second != NULL);
+    assert(second->kind == CC_AST_STATEMENT_RETURN);
+    assert(second->span.start == 20 && second->span.end == 29);
+    assert(second->return_expression != NULL);
+    assert(second->return_expression->kind ==
+           CC_AST_EXPRESSION_IDENTIFIER);
+    assert(second->return_expression->span.start == 27);
+    assert(second->return_expression->span.end == 28);
+    assert(second->next == NULL);
+
+    fixture_destroy(&fixture);
+}
+
 static void test_parse_errors(void)
 {
     static const char *const invalid[] = {
@@ -292,7 +362,13 @@ static void test_parse_errors(void)
         "fn main() { return a + ; }",
         "fn main() { return (1; }",
         "fn main() { return a + b c; }",
-        "fn main() { return a b; }"
+        "fn main() { return a b; }",
+        "fn f() { let x; }",
+        "fn f() { let 3 = 1; }",
+        "fn f() { let x = ; }",
+        "fn f() { let x: i32 = 1",
+        "fn f() { var x: = 1; }",
+        "fn f() { let (x, y) = x; }"
     };
 
     ParserFixture fixture;
@@ -334,6 +410,8 @@ int main(void)
     test_binary_precedence();
     test_parenthesized_expression();
     test_unary_operators();
+    test_let_statement_with_type();
+    test_var_statement_inferred();
     test_parse_errors();
     test_empty_source_without_functions();
 
