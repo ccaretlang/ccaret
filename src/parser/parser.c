@@ -18,6 +18,7 @@ enum {
 };
 
 static CcExpression *parse_expression(CcParser *parser);
+static CcExpression *parse_postfix(CcParser *parser);
 
 typedef struct {
     CcTokenKind token_kind;
@@ -339,7 +340,63 @@ static CcExpression *parse_unary(CcParser *parser)
         return outer;
     }
 
-    return parse_primary(parser);
+    return parse_postfix(parser);
+}
+
+static CcExpression *parse_postfix(CcParser *parser)
+{
+    CcExpression *expression = parse_primary(parser);
+
+    if (parser->failed || expression == NULL) return NULL;
+
+    while (parser->current.kind == CC_TOKEN_LPAREN) {
+        advance(parser);
+
+        CcCallArgument *arguments = NULL;
+        CcCallArgument **link = &arguments;
+
+        if (parser->current.kind != CC_TOKEN_RPAREN) {
+            for (;;) {
+                CcExpression *argument = parse_expression(parser);
+
+                if (parser->failed || argument == NULL) return NULL;
+
+                CcCallArgument *node = allocate(parser, sizeof(*node));
+
+                if (node == NULL) return NULL;
+
+                node->value = argument;
+                node->next = NULL;
+                *link = node;
+                link = &node->next;
+
+                if (parser->current.kind != CC_TOKEN_COMMA) break;
+
+                advance(parser);
+            }
+        }
+
+        CcToken rparen;
+
+        if (!expect(parser, CC_TOKEN_RPAREN, "expected `)` after arguments",
+                    &rparen))
+            return NULL;
+
+        CcExpression *call = allocate(parser, sizeof(*call));
+
+        if (call == NULL) return NULL;
+
+        call->kind = CC_AST_EXPRESSION_CALL;
+        call->span.file_id = expression->span.file_id;
+        call->span.start = expression->span.start;
+        call->span.end = rparen.span.end;
+        call->call.callee = expression;
+        call->call.arguments = arguments;
+
+        expression = call;
+    }
+
+    return expression;
 }
 
 static CcExpression *parse_binary(CcParser *parser, int min_precedence)

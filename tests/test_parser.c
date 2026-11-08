@@ -456,6 +456,118 @@ static void test_compound_assignment_statements(void)
     fixture_destroy(&fixture);
 }
 
+static void test_call_expression_with_arguments(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { g(1, 2 + 3); }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_EXPRESSION);
+    assert(statement->span.start == 9 && statement->span.end == 21);
+
+    CcExpression *expression = statement->expression;
+
+    assert(expression != NULL);
+    assert(expression->kind == CC_AST_EXPRESSION_CALL);
+    assert(expression->span.start == 9 && expression->span.end == 20);
+    assert(expression->call.callee != NULL);
+    assert(expression->call.callee->kind == CC_AST_EXPRESSION_IDENTIFIER);
+    assert(expression->call.callee->span.start == 9);
+    assert(expression->call.callee->span.end == 10);
+
+    CcCallArgument *first = expression->call.arguments;
+
+    assert(first != NULL);
+    assert(first->value != NULL);
+    assert(first->value->kind == CC_AST_EXPRESSION_INTEGER_LITERAL);
+    assert(first->value->span.start == 11);
+    assert(first->value->span.end == 12);
+
+    CcCallArgument *second = first->next;
+
+    assert(second != NULL);
+    assert(second->value != NULL);
+    assert(second->value->kind == CC_AST_EXPRESSION_BINARY);
+    assert(second->value->span.start == 14);
+    assert(second->value->span.end == 19);
+    assert(second->next == NULL);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_call_expression_without_arguments(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { g(); }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_EXPRESSION);
+    assert(statement->span.start == 9 && statement->span.end == 13);
+
+    CcExpression *expression = statement->expression;
+
+    assert(expression != NULL);
+    assert(expression->kind == CC_AST_EXPRESSION_CALL);
+    assert(expression->span.start == 9 && expression->span.end == 12);
+    assert(expression->call.callee != NULL);
+    assert(expression->call.arguments == NULL);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_nested_call_expression(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture, "fn f() { g(h(1)); }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_EXPRESSION);
+    assert(statement->span.start == 9 && statement->span.end == 17);
+
+    CcExpression *expression = statement->expression;
+
+    assert(expression != NULL);
+    assert(expression->kind == CC_AST_EXPRESSION_CALL);
+    assert(expression->span.start == 9 && expression->span.end == 16);
+    assert(expression->call.callee != NULL);
+    assert(expression->call.callee->kind == CC_AST_EXPRESSION_IDENTIFIER);
+
+    CcCallArgument *argument = expression->call.arguments;
+
+    assert(argument != NULL);
+    assert(argument->next == NULL);
+    assert(argument->value != NULL);
+    assert(argument->value->kind == CC_AST_EXPRESSION_CALL);
+    assert(argument->value->span.start == 11);
+    assert(argument->value->span.end == 15);
+
+    fixture_destroy(&fixture);
+}
+
 static void test_parse_errors(void)
 {
     static const char *const invalid[] = {
@@ -484,7 +596,10 @@ static void test_parse_errors(void)
         "fn f() { = 1; }",
         "fn f() { x = y = 1; }",
         "fn f() { x += ; }",
-        "fn f() { x += 1 }"
+        "fn f() { x += 1 }",
+        "fn f() { g(1, ); }",
+        "fn f() { g(1 }",
+        "fn f() { g(; }"
     };
 
     ParserFixture fixture;
@@ -531,6 +646,9 @@ int main(void)
     test_expression_statements();
     test_assignment_statement();
     test_compound_assignment_statements();
+    test_call_expression_with_arguments();
+    test_call_expression_without_arguments();
+    test_nested_call_expression();
     test_parse_errors();
     test_empty_source_without_functions();
 

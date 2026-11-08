@@ -6,6 +6,7 @@
 
 typedef struct CcType CcType;
 typedef struct CcParameter CcParameter;
+typedef struct CcCallArgument CcCallArgument;
 typedef struct CcExpression CcExpression;
 typedef struct CcStatement CcStatement;
 typedef struct CcBlock CcBlock;
@@ -20,7 +21,8 @@ typedef enum {
     CC_AST_EXPRESSION_IDENTIFIER,
     CC_AST_EXPRESSION_PARENTHESIZED,
     CC_AST_EXPRESSION_UNARY,
-    CC_AST_EXPRESSION_BINARY
+    CC_AST_EXPRESSION_BINARY,
+    CC_AST_EXPRESSION_CALL
 } CcExpressionKind;
 
 typedef enum {
@@ -88,6 +90,11 @@ struct CcParameter {
     CcParameter *next;
 };
 
+struct CcCallArgument {
+    CcExpression *value;
+    CcCallArgument *next;
+};
+
 typedef struct {
     unsigned long long value;
     bool overflow;
@@ -109,6 +116,10 @@ struct CcExpression {
             CcExpression *right;
             CcBinaryOperator operator;
         } binary;
+        struct {
+            CcExpression *callee;
+            CcCallArgument *arguments;
+        } call;
     };
 };
 
