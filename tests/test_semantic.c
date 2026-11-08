@@ -170,7 +170,19 @@ static void test_valid_programs(void)
         "fn f() { var a: [2]i32 = [1, 2]; a[0] = 10;"
         " a[1] += 1; }",
         "fn f(a: [2][2]i32) -> i32 { return a[0][1]; }",
-        "fn f(a: [3]i32) -> usize { return a.len; }"
+        "fn f(a: [3]i32) -> usize { return a.len; }",
+        "struct Marker {}",
+        "pub struct Vec { x: i32, y: i32, }"
+        "fn f() -> Vec { return Vec { y: 22, x: 20 }; }",
+        "fn f() -> i32 { return Thing { n: 42 }.n; }"
+        "struct Thing { n: i32 }",
+        "struct P { n: i32 }"
+        "fn f() { var p = P { n: 1 }; p.n += 2; }",
+        "struct P { child: ?i32 }"
+        "fn f() { let arr: [1]P = [P { child: none }]; }",
+        "struct One { value: i32 } struct Two { value: i32 }"
+        "fn a(value: One) -> i32 { return value.value; }"
+        "fn b(value: Two) -> i32 { return value.value; }"
     };
 
     for (size_t i = 0; i < sizeof(programs) / sizeof(programs[0]); i++)
@@ -288,6 +300,43 @@ static void test_invalid_programs(void)
           "index must be an integer", "true" },
         { "fn f() { var a: [2]i32 = [1,2]; a[0] = true; }",
           "type mismatch", "true" },
+        { "struct P { x: i32 } struct P { y: i32 }",
+          "duplicate struct name", "P" },
+        { "struct i32 {}",
+          "struct name conflicts with builtin", "i32" },
+        { "struct P { x: i32, x: i32 }",
+          "duplicate struct field", "x" },
+        { "struct P { x: void }",
+          "struct field cannot have void type", "void" },
+        { "struct P { child: ?P }",
+          "recursive struct value type", "P" },
+        { "struct P { x: Missing }",
+          "unknown type", "Missing" },
+        { "struct P { x: i32 } fn f() { let p = P { z: 2 }; }",
+          "unknown struct field", "z" },
+        { "struct P { x: i32, y: i32 }"
+          " fn f() { let p = P { x: 1 }; }",
+          "missing struct initializer field", NULL },
+        { "struct P { x: i32 } fn f() { let p = P { x: 1, x: 2 }; }",
+          "duplicate struct initializer field", NULL },
+        { "struct P { x: i32 } fn f() { let p = P { x: true }; }",
+          "type mismatch", "true" },
+        { "struct P { x: i32 } fn f() { let p = P { x: 1 };"
+          " p.x = 2; }",
+          "cannot assign to immutable binding", "p.x" },
+        { "struct P { ok: bool } fn f() { var p = P { ok: true };"
+          " p.ok += true; }",
+          "compound assignment requires a numeric variable", "p.ok" },
+        { "struct P { x: i32 } fn f() -> i32 { let p = P { x: 1 };"
+          " return p.other; }",
+          "unknown struct field", "other" },
+        { "struct X {} fn X() {}",
+          "function name conflicts with struct", "X" },
+        { "struct A { x: i32 } struct B { x: i32 }"
+          " fn f() -> A { return B { x: 1 }; }",
+          "struct literal type mismatch", NULL },
+        { "fn f() { let p = Unknown {}; }",
+          "unknown struct type", "Unknown" },
         { "fn f(x: void) {}", "parameter cannot have void type", "void" },
         { "fn f() { let x: void = (); }",
           "type mismatch: expected a tuple", "()" },

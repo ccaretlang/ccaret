@@ -23,7 +23,8 @@ enum {
 typedef enum {
     CC_IR_TYPE_TUPLE,
     CC_IR_TYPE_OPTIONAL,
-    CC_IR_TYPE_ARRAY
+    CC_IR_TYPE_ARRAY,
+    CC_IR_TYPE_STRUCT
 } CcIrCompositeKind;
 
 typedef struct CcIrTypeInfo CcIrTypeInfo;
@@ -34,6 +35,8 @@ struct CcIrTypeInfo {
     uint32_t count;
     CcIrType *members;
     CcIrType inner;
+    CcSourceSpan name;          /* Nominal struct name, otherwise unused. */
+    CcSourceSpan *field_names;  /* Nominal struct fields in declaration order. */
     CcIrTypeInfo *next;
 };
 
@@ -70,7 +73,10 @@ typedef enum {
     CC_IR_MAKE_NONE,
     CC_IR_MAKE_ARRAY,
     CC_IR_GET_ARRAY,
-    CC_IR_STORE_INDEX
+    CC_IR_STORE_INDEX,
+    CC_IR_MAKE_STRUCT,
+    CC_IR_GET_STRUCT,
+    CC_IR_SET_FIELD
 } CcIrOpcode;
 
 typedef enum {

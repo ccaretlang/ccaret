@@ -16,7 +16,8 @@ are arena-allocated; it does not yet annotate the AST with persistent
 ## Implemented checks
 
 - Resolve built-in `void`, `bool`, signed/unsigned integer types,
-  `isize`/`usize`, `f32`/`f64`; reject unknown type names.
+  `isize`/`usize`, `f32`/`f64`, and declared nominal structs;
+  reject unknown type names.
 - Resolve pointers, slices, optionals, tuples, and fixed arrays, preserving
   the pointee/element `const` qualifier. Array lengths are nonnegative,
   constant unsigned-integer expressions using literals, `+`, `-`, `*`,
@@ -24,6 +25,10 @@ are arena-allocated; it does not yet annotate the AST with persistent
 - Register all function signatures before checking bodies, allowing forward
   calls and recursion. Reject duplicate function/parameter names and calls
   with the wrong argument count or types.
+- Register nominal struct types independent of declaration order, check
+  duplicate type/field names, reject recursive value types and void fields,
+  require every struct literal field exactly once, and check field reads,
+  assignments and nominal type compatibility.
 - Track lexical scopes and the mutability of `let`/`var` bindings.
   Resolve identifiers, prevent duplicate bindings in the same scope, reject
   use before declaration, and check assignment type and mutability.
@@ -45,14 +50,15 @@ are arena-allocated; it does not yet annotate the AST with persistent
 
 ## Limits of this first pass
 
-- Not yet supported: user-defined structs, enums, generics, imports, C ABI
-  aliases, type aliases, and function values. Named types are limited to the
-  built-ins listed above.
+- Not yet supported: enums, unions, generics, imports, C ABI aliases,
+  type aliases, and function values. Struct-level `pub` parses but
+  cross-module visibility and representation rules are not implemented.
 - Pointer dereference/address-taking and other unsafe operations require a
   later safety-aware pass. The checker rejects those expressions explicitly.
-- Assignment targets are mutable local variables or single-level indexed
-  elements of a mutable fixed-array local. Nested indexed writes, tuple
-  members and slice writes remain unsupported.
+- Assignment targets are mutable local variables, single-level indexed
+  elements of mutable fixed-array locals, or named fields of mutable
+  struct locals. Nested writes, tuple members and slice writes remain
+  unsupported.
 - Float type signatures and operations on float *variables* are recognized;
   floating-point literal expressions still await parser support.
 - Integer literals are checked for representable values (including the

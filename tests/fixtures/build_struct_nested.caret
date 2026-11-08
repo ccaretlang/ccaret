@@ -1,0 +1,11 @@
+struct Inner { value: i32 }
+struct Outer { pair: (Inner, ?i32), values: [2]Inner }
+
+fn main() -> i32 {
+    let object = Outer {
+        pair: (Inner { value: 20 }, none),
+        values: [Inner { value: 11 }, Inner { value: 11 }],
+    };
+    return object.pair.0.value + object.values[0].value +
+           object.values[1].value;
+}

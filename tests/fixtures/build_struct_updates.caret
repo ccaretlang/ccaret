@@ -1,0 +1,16 @@
+struct Accumulator { count: i32, enabled: bool }
+
+fn choose(flag: bool) -> i32 {
+    if flag {
+        return 5;
+    }
+    return 4;
+}
+
+fn main() -> i32 {
+    var state = Accumulator { count: 2, enabled: true };
+    for i in 0..8 {
+        state.count += choose(state.enabled && true);
+    }
+    return state.count;
+}

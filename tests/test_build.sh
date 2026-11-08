@@ -72,6 +72,26 @@ build_run array_computed_len 42
 build_run array_index_flow 42
 build_run array_optional_write 42
 build_run array_nested_write 42
+build_run struct_basic 42
+build_run struct_copy 42
+build_run struct_nested 42
+build_run struct_empty 42
+build_run struct_forward 42
+build_run struct_array 42
+build_run struct_updates 42
+build_run struct_unit 42
+build_run struct_nominal 42
+build_run struct_condition 42
+build_run struct_mutation 42
+
+"$binary" emit-ir "$root/tests/fixtures/build_struct_copy.caret" \
+    -o "$out/struct_copy.ir"
+grep -q 'struct Pair { first: i32, second: i32 }' "$out/struct_copy.ir"
+grep -q 'struct(' "$out/struct_copy.ir"
+grep -q 'struct.get ' "$out/struct_copy.ir"
+grep -q 'struct.set ' "$out/struct_copy.ir"
+grep -q 'f0;' "$out/compiled_struct_basic.c"
+grep -q 'uint8_t _unit;' "$out/compiled_struct_empty.c"
 
 "$binary" emit-ir "$root/tests/fixtures/build_array_mutate.caret" \
     -o "$out/array_mutate.ir"
@@ -144,7 +164,10 @@ for case in hello call factorial while shortcircuit boolean \
     array_basic array_copy array_nested array_nested_arrays array_empty \
     array_len array_flow array_mutate array_infer array_order \
     array_usize array_computed_len array_index_flow \
-    array_optional_write array_nested_write; do
+    array_optional_write array_nested_write \
+    struct_basic struct_copy struct_nested struct_empty struct_forward \
+    struct_array struct_updates struct_unit struct_nominal \
+    struct_condition struct_mutation; do
     gcc -std=c17 -O2 -Wall -Wextra -Wpedantic -Werror \
         "$out/compiled_$case.c" -o "$out/optimized_$case"
     case "$case" in
@@ -179,7 +202,7 @@ run_exit 42 "$out/@literal-name"
 for case in overflow divzero div_overflow neg_overflow \
     compound_overflow compound_divzero \
     array_negative_index array_oob_index array_empty_index \
-    array_oob_write array_empty_write; do
+    array_oob_write array_empty_write struct_compound_overflow; do
     "$binary" build "$root/tests/fixtures/build_$case.caret" \
         -o "$out/trap_$case"
     set +e
@@ -194,7 +217,7 @@ done
 
 for case in overflow compound_overflow compound_divzero \
     array_negative_index array_oob_index array_empty_index \
-    array_oob_write array_empty_write; do
+    array_oob_write array_empty_write struct_compound_overflow; do
     gcc -std=c17 -O2 -Wall -Wextra -Wpedantic -Werror \
         "$out/trap_$case.c" -o "$out/optimized_trap_$case"
     set +e
@@ -229,6 +252,20 @@ if "$binary" build "$root/tests/fixtures/build_array_oversize.caret" \
 fi
 grep -q 'IR lowering: array length exceeds current C17 limit' \
     "$out/oversize.err"
+
+for case in struct_bad_return struct_recursive struct_unsupported_field; do
+    if "$binary" build "$root/tests/fixtures/build_$case.caret" \
+        -o "$out/unsupported_$case" > /dev/null 2> "$out/$case.err"; then
+        echo "build: invalid struct case $case must fail" >&2
+        exit 1
+    fi
+done
+grep -q 'error: semantic: struct literal type mismatch' \
+    "$out/struct_bad_return.err"
+grep -q 'error: semantic: recursive struct value type' \
+    "$out/struct_recursive.err"
+grep -q 'error: IR: IR backend currently supports only' \
+    "$out/struct_unsupported_field.err"
 
 if "$binary" build "$root/tests/fixtures/build_invalid_main.caret" \
     -o "$out/invalid_main" > /dev/null 2> "$out/invalid_main.err"; then

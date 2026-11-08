@@ -1,0 +1,10 @@
+fn make() -> Outer {
+    return Outer { child: Child { n: 42 } };
+}
+
+struct Outer { child: Child }
+struct Child { n: i32 }
+
+fn main() -> i32 {
+    return make().child.n;
+}

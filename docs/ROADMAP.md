@@ -49,7 +49,10 @@
       explicitly wrapping `i32` arithmetic (signed shifts remain pending).
 - [x] Fixed arrays, literals, by-value calling/returning, checked
       `i32` indexing and mutable-local element updates.
-- [ ] Structs, module imports and visibility.
+- [x] Nominal struct declarations, named-field literals, by-value
+      calls/returns, field reads and direct mutable-local field writes.
+- [ ] Module imports, visibility enforcement and struct representation
+      attributes/foreign ABI.
 - [ ] Raw pointers, `unsafe`, C ABI declarations and function pointers.
 - [ ] Slices, bounds checks and layout intrinsics.
 

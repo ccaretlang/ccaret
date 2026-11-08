@@ -142,6 +142,7 @@ static void emit_instruction(FILE *out, const CcIrInstruction *i)
         fputc(')', out);
         break;
     case CC_IR_MAKE_TUPLE:
+    case CC_IR_MAKE_STRUCT:
         fprintf(out, "(cc_t_%u){", i->type);
         if (i->arg_count == 0) fputs("0", out);
         for (uint32_t a = 0; a < i->arg_count; a++)
@@ -150,6 +151,7 @@ static void emit_instruction(FILE *out, const CcIrInstruction *i)
         fputs(" }", out);
         break;
     case CC_IR_GET_TUPLE:
+    case CC_IR_GET_STRUCT:
         fprintf(out, "r%u.f%u", i->lhs, i->slot);
         break;
     case CC_IR_MAKE_SOME:
@@ -185,6 +187,10 @@ static void emit_instruction(FILE *out, const CcIrInstruction *i)
             fprintf(out,
                     "s%u.elements[ccrt_index_i32(r%u, %u)] = r%u",
                     i->slot, i->lhs, i->arg_count, i->rhs);
+        break;
+    case CC_IR_SET_FIELD:
+        fprintf(out, "s%u.f%u = r%u",
+                i->slot, i->arg_count, i->lhs);
         break;
     }
     fputs(";\n", out);

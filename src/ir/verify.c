@@ -25,6 +25,22 @@ static bool valid_type(const CcIrModule *module, CcIrType id)
         (id < module->type_count && cc_ir_type_info(module, id) != NULL);
 }
 
+static bool valid_name(const CcIrModule *module, CcSourceSpan name)
+{
+    return name.file_id != CC_FILE_ID_INVALID &&
+           name.start < name.end && name.end <= module->file->length;
+}
+
+static bool same_name(const CcIrModule *module, CcSourceSpan a,
+                      CcSourceSpan b)
+{
+    if (!valid_name(module, a) || !valid_name(module, b)) return false;
+    size_t size = a.end - a.start;
+    return b.end - b.start == size &&
+           memcmp(module->file->bytes + a.start,
+                  module->file->bytes + b.start, size) == 0;
+}
+
 static bool use_register(CcIrError *error, const CcIrInstruction *instruction,
                          uint32_t id, CcIrType expected,
                          const CcIrType *types, const uint32_t *blocks,
@@ -208,6 +224,43 @@ static bool validate_instruction(const CcIrModule *module,
                         "IR verifier: invalid array indexed store");
         break;
     }
+    case CC_IR_MAKE_STRUCT: {
+        const CcIrTypeInfo *record = cc_ir_type_info(module, i->type);
+        if (record == NULL || record->kind != CC_IR_TYPE_STRUCT ||
+            record->count != i->arg_count ||
+            (i->arg_count != 0 && i->args == NULL))
+            return fail(error, i->span,
+                        "IR verifier: invalid struct constructor");
+        for (uint32_t a = 0; a < i->arg_count; a++)
+            if (!USE(i->args[a], record->members[a])) return false;
+        break;
+    }
+    case CC_IR_GET_STRUCT: {
+        if (i->lhs >= register_count || !defined[i->lhs])
+            return fail(error, i->span,
+                        "IR verifier: invalid struct projection");
+        CcIrType source = types[i->lhs];
+        const CcIrTypeInfo *record = cc_ir_type_info(module, source);
+        if (record == NULL || record->kind != CC_IR_TYPE_STRUCT ||
+            i->slot >= record->count ||
+            i->type != record->members[i->slot] ||
+            !USE(i->lhs, source))
+            return fail(error, i->span,
+                        "IR verifier: invalid struct projection");
+        break;
+    }
+    case CC_IR_SET_FIELD: {
+        const CcIrTypeInfo *record =
+            i->slot < slot_count
+                ? cc_ir_type_info(module, slots[i->slot]) : NULL;
+        if (i->type != CC_IR_VOID || record == NULL ||
+            record->kind != CC_IR_TYPE_STRUCT ||
+            i->arg_count >= record->count ||
+            !USE(i->lhs, record->members[i->arg_count]))
+            return fail(error, i->span,
+                        "IR verifier: invalid struct field store");
+        break;
+    }
     default:
         return fail(error, i->span, "IR verifier: unknown instruction");
     }
@@ -237,10 +290,12 @@ bool cc_ir_verify(const CcIrModule *module, CcIrError *error)
         if (type->id != type_id++ ||
             (type->kind != CC_IR_TYPE_TUPLE &&
              type->kind != CC_IR_TYPE_OPTIONAL &&
-             type->kind != CC_IR_TYPE_ARRAY))
+             type->kind != CC_IR_TYPE_ARRAY &&
+             type->kind != CC_IR_TYPE_STRUCT))
             return fail(error, error->span, "IR verifier: invalid type table");
         if (type->kind == CC_IR_TYPE_OPTIONAL) {
             if (type->count != 0 || type->members != NULL ||
+                type->field_names != NULL ||
                 type->inner == CC_IR_VOID ||
                 (type->inner >= type->id &&
                  type->inner != CC_IR_USIZE))
@@ -250,11 +305,35 @@ bool cc_ir_verify(const CcIrModule *module, CcIrError *error)
             if (type->inner == CC_IR_VOID ||
                 (type->inner >= type->id &&
                  type->inner != CC_IR_USIZE) ||
-                type->count > 65536U || type->members != NULL)
+                type->count > 65536U || type->members != NULL ||
+                type->field_names != NULL)
                 return fail(error, error->span,
                             "IR verifier: invalid array type");
-        } else {
+        } else if (type->kind == CC_IR_TYPE_STRUCT) {
             if (type->inner != CC_IR_VOID ||
+                !valid_name(module, type->name) ||
+                type->count > 65536U ||
+                (type->count != 0 &&
+                 (type->members == NULL || type->field_names == NULL)) ||
+                (type->count == 0 &&
+                 (type->members != NULL || type->field_names != NULL)))
+                return fail(error, error->span,
+                            "IR verifier: invalid struct type");
+            for (uint32_t i = 0; i < type->count; i++) {
+                if (type->members[i] == CC_IR_VOID ||
+                    (type->members[i] >= type->id &&
+                     type->members[i] != CC_IR_USIZE) ||
+                    !valid_name(module, type->field_names[i]))
+                    return fail(error, error->span,
+                                "IR verifier: invalid struct field type");
+                for (uint32_t j = 0; j < i; j++)
+                    if (same_name(module, type->field_names[i],
+                                  type->field_names[j]))
+                        return fail(error, error->span,
+                                    "IR verifier: duplicate struct field");
+            }
+        } else {
+            if (type->inner != CC_IR_VOID || type->field_names != NULL ||
                 (type->count != 0 && type->members == NULL))
                 return fail(error, error->span,
                             "IR verifier: invalid tuple type");
@@ -273,6 +352,10 @@ bool cc_ir_verify(const CcIrModule *module, CcIrError *error)
                 if (type->inner == other->inner &&
                     (type->kind != CC_IR_TYPE_ARRAY ||
                      type->count == other->count))
+                    return fail(error, error->span,
+                                "IR verifier: duplicate composite type");
+            } else if (type->kind == CC_IR_TYPE_STRUCT) {
+                if (same_name(module, type->name, other->name))
                     return fail(error, error->span,
                                 "IR verifier: duplicate composite type");
             } else if (type->count == other->count &&

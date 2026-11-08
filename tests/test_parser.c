@@ -2800,6 +2800,51 @@ static void test_array_literals(void)
     fixture_destroy(&f);
 }
 
+static void test_struct_syntax(void)
+{
+    ParserFixture f;
+    fixture_init(&f,
+        "pub struct Point { x: i32, y: ?i32, }"
+        "fn main() -> i32 {"
+        " var p: Point = Point { y: none, x: 42, };"
+        " p.x += 1; return p.x; }"
+        "struct Empty {}");
+    CcFunctionDeclaration *first = cc_parser_parse_program(&f.parser);
+    assert(first != NULL && !f.parser.failed);
+    assert(first->struct_decl != NULL && first->is_public);
+    assert(first->struct_decl->fields != NULL);
+    assert(first->struct_decl->fields->next != NULL);
+    assert(first->struct_decl->fields->next->next == NULL);
+    CcFunctionDeclaration *fn = first->next;
+    assert(fn != NULL && fn->struct_decl == NULL);
+    CcExpression *init = fn->body->first->let.initializer;
+    assert(init->kind == CC_AST_EXPRESSION_STRUCT);
+    assert(init->struct_literal.fields != NULL);
+    assert(init->struct_literal.fields->next != NULL);
+    assert(init->struct_literal.fields->next->next == NULL);
+    assert(fn->body->first->next->kind == CC_AST_STATEMENT_ASSIGNMENT);
+    assert(fn->body->first->next->assignment.target->kind ==
+           CC_AST_EXPRESSION_MEMBER);
+    CcFunctionDeclaration *empty = fn->next;
+    assert(empty != NULL && empty->struct_decl != NULL &&
+           empty->struct_decl->fields == NULL);
+    assert(empty->next == NULL);
+    fixture_destroy(&f);
+
+    fixture_init(&f, "struct Broken { x i32 }");
+    cc_parser_parse_program(&f.parser);
+    assert(f.parser.failed);
+    assert(strcmp(f.parser.error, "expected `:` after field name") == 0);
+    fixture_destroy(&f);
+
+    fixture_init(&f, "struct P { x: i32 } fn f() { let p = P { x 1 }; }");
+    cc_parser_parse_program(&f.parser);
+    assert(f.parser.failed);
+    assert(strcmp(f.parser.error,
+                  "expected `:` after struct field name") == 0);
+    fixture_destroy(&f);
+}
+
 int main(void)
 {
     test_simple_function();
@@ -2874,6 +2919,7 @@ int main(void)
     test_for_inclusive_range_precedence();
     test_for_unterminated_body();
     test_array_literals();
+    test_struct_syntax();
     test_parse_errors();
     test_empty_source_without_functions();
 

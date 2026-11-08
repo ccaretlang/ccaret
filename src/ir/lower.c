@@ -6,6 +6,14 @@
 
 typedef struct LowerVar LowerVar;
 typedef struct LowerLoop LowerLoop;
+typedef struct LowerStruct LowerStruct;
+
+struct LowerStruct {
+    const CcStructDeclaration *decl;
+    CcIrType id;
+    unsigned int state;
+    LowerStruct *next;
+};
 
 struct LowerVar {
     CcSourceSpan name;
@@ -27,6 +35,7 @@ typedef struct {
     CcIrBlock *current;
     LowerVar *variables;
     LowerLoop *loop;
+    LowerStruct *structs;
     CcIrError *error;
     bool failed;
 } Lower;
@@ -75,6 +84,7 @@ static CcIrType intern_type(Lower *ctx, CcIrCompositeKind kind,
     for (CcIrTypeInfo *info = ctx->module->types; info != NULL;
          info = info->next) {
         if (info->kind != kind) continue;
+        if (kind == CC_IR_TYPE_STRUCT) continue;
         if (kind == CC_IR_TYPE_OPTIONAL || kind == CC_IR_TYPE_ARRAY) {
             if (info->inner == inner &&
                 (kind != CC_IR_TYPE_ARRAY || info->count == count))
@@ -128,6 +138,80 @@ static bool name_is(Lower *ctx, CcSourceSpan a, const char *name)
     return a.end >= a.start && a.end <= ctx->file->length &&
            a.end - a.start == size &&
            memcmp(ctx->file->bytes + a.start, name, size) == 0;
+}
+
+static LowerStruct *find_struct(Lower *ctx, CcSourceSpan name)
+{
+    for (LowerStruct *entry = ctx->structs; entry != NULL;
+         entry = entry->next)
+        if (name_equal(ctx, entry->decl->name, name)) return entry;
+    return NULL;
+}
+
+static bool type_of(Lower *ctx, const CcType *node, CcIrType *result,
+                    CcSourceSpan fallback);
+
+static CcIrType intern_struct(Lower *ctx, LowerStruct *entry)
+{
+    if (entry->state == 2) return entry->id;
+    if (entry->state == 1) {
+        error_at(ctx, entry->decl->name,
+                 "IR lowering: recursive struct value type");
+        return CC_IR_NONE;
+    }
+    entry->state = 1;
+    uint32_t count = 0;
+    for (const CcStructField *field = entry->decl->fields; field != NULL;
+         field = field->next) {
+        if (count >= 65536U) {
+            error_at(ctx, field->name, "IR lowering: too many struct fields");
+            return CC_IR_NONE;
+        }
+        count++;
+    }
+    CcIrType *types = NULL;
+    CcSourceSpan *names = NULL;
+    if (count != 0) {
+        types = new_object(ctx, (size_t)count * sizeof(*types),
+                           entry->decl->span);
+        names = new_object(ctx, (size_t)count * sizeof(*names),
+                           entry->decl->span);
+        if (types == NULL || names == NULL) return CC_IR_NONE;
+    }
+    uint32_t index = 0;
+    for (const CcStructField *field = entry->decl->fields; field != NULL;
+         field = field->next) {
+        if (!type_of(ctx, field->type, &types[index], field->name))
+            return CC_IR_NONE;
+        if (types[index] == CC_IR_VOID) {
+            error_at(ctx, field->type->span,
+                     "IR lowering: void struct field unsupported");
+            return CC_IR_NONE;
+        }
+        names[index] = field->name;
+        index++;
+    }
+    if (ctx->module->type_count >= CC_IR_USIZE) {
+        error_at(ctx, entry->decl->span, "too many IR types");
+        return CC_IR_NONE;
+    }
+    CcIrTypeInfo *info = new_object(ctx, sizeof(*info), entry->decl->span);
+    if (info == NULL) return CC_IR_NONE;
+    memset(info, 0, sizeof(*info));
+    info->id = ctx->module->type_count++;
+    info->kind = CC_IR_TYPE_STRUCT;
+    info->count = count;
+    info->members = types;
+    info->name = entry->decl->name;
+    info->field_names = names;
+    if (ctx->module->last_type == NULL)
+        ctx->module->types = info;
+    else
+        ctx->module->last_type->next = info;
+    ctx->module->last_type = info;
+    entry->id = info->id;
+    entry->state = 2;
+    return info->id;
 }
 
 static bool array_length(const CcExpression *expr, uint64_t *out)
@@ -192,6 +276,11 @@ static bool type_of(Lower *ctx, const CcType *node, CcIrType *result,
             *result = CC_IR_USIZE;
             return true;
         }
+        LowerStruct *record = find_struct(ctx, node->span);
+        if (record != NULL) {
+            *result = intern_struct(ctx, record);
+            return !ctx->failed;
+        }
     }
     if (node->kind == CC_AST_TYPE_OPTIONAL) {
         CcIrType inner;
@@ -251,7 +340,7 @@ static bool type_of(Lower *ctx, const CcType *node, CcIrType *result,
         return !ctx->failed;
     }
     error_at(ctx, node == NULL ? fallback : node->span,
-             "IR backend currently supports only i32, usize, bool, void, tuples, optionals and fixed arrays");
+             "IR backend currently supports only i32, usize, bool, void, tuples, optionals, fixed arrays and structs");
     return false;
 }
 
@@ -453,6 +542,17 @@ static void branch(Lower *ctx, Value condition, CcIrBlock *yes,
 static Value lower_expr(Lower *ctx, const CcExpression *expr,
                         CcIrType expected);
 
+static uint32_t struct_field_index(Lower *ctx,
+                                   const CcIrTypeInfo *type,
+                                   CcSourceSpan name)
+{
+    if (type == NULL || type->kind != CC_IR_TYPE_STRUCT)
+        return CC_IR_NONE;
+    for (uint32_t i = 0; i < type->count; i++)
+        if (name_equal(ctx, type->field_names[i], name)) return i;
+    return CC_IR_NONE;
+}
+
 static Value lower_logic(Lower *ctx, const CcExpression *expr, bool and)
 {
     Value left = lower_expr(ctx, expr->binary.left, CC_IR_BOOL);
@@ -640,6 +740,67 @@ static Value lower_expr(Lower *ctx, const CcExpression *expr,
         }
         return array;
     }
+    case CC_AST_EXPRESSION_STRUCT: {
+        LowerStruct *entry = find_struct(ctx, expr->struct_literal.name);
+        if (entry == NULL) {
+            error_at(ctx, expr->span, "IR lowering: unknown struct type");
+            return no_value();
+        }
+        CcIrType type = intern_struct(ctx, entry);
+        if (ctx->failed) return no_value();
+        if (expected != CC_IR_NONE && expected != type) {
+            error_at(ctx, expr->span, "IR lowering: struct type mismatch");
+            return no_value();
+        }
+        const CcIrTypeInfo *info = cc_ir_type_info(ctx->module, type);
+        uint32_t *slots = NULL;
+        uint32_t *args = NULL;
+        if (info->count != 0) {
+            slots = new_object(ctx, (size_t)info->count * sizeof(*slots),
+                               expr->span);
+            args = new_object(ctx, (size_t)info->count * sizeof(*args),
+                              expr->span);
+            if (slots == NULL || args == NULL) return no_value();
+            for (uint32_t p = 0; p < info->count; p++)
+                slots[p] = CC_IR_NONE;
+        }
+        for (const CcStructFieldValue *part = expr->struct_literal.fields;
+             part != NULL; part = part->next) {
+            uint32_t index = struct_field_index(ctx, info, part->name);
+            if (index == CC_IR_NONE || slots[index] != CC_IR_NONE) {
+                error_at(ctx, part->name,
+                         "IR lowering: invalid struct initializer field");
+                return no_value();
+            }
+            Value value = lower_expr(ctx, part->value, info->members[index]);
+            if (ctx->failed || value.type != info->members[index]) {
+                error_at(ctx, part->value->span,
+                         "IR lowering: struct field type mismatch");
+                return no_value();
+            }
+            slots[index] = make_slot(ctx, value.type, part->value->span);
+            if (ctx->failed || !store(ctx, slots[index], value,
+                                       part->value->span))
+                return no_value();
+        }
+        for (uint32_t p = 0; p < info->count; p++) {
+            if (slots[p] == CC_IR_NONE) {
+                error_at(ctx, expr->span,
+                         "IR lowering: missing struct initializer field");
+                return no_value();
+            }
+            Value value = load(ctx, slots[p], expr->span);
+            if (ctx->failed) return no_value();
+            args[p] = value.reg;
+        }
+        CcIrInstruction *node = NULL;
+        Value result = append(ctx, CC_IR_MAKE_STRUCT, type, expr->span, &node);
+        if (node != NULL) {
+            node->arg_count = info->count;
+            node->args = args;
+        }
+        return result;
+    }
     case CC_AST_EXPRESSION_TUPLE_MEMBER: {
         Value tuple = lower_expr(ctx, expr->tuple_member.operand, CC_IR_NONE);
         if (ctx->failed) return no_value();
@@ -695,6 +856,22 @@ static Value lower_expr(Lower *ctx, const CcExpression *expr,
         Value array = lower_expr(ctx, expr->member.operand, CC_IR_NONE);
         if (ctx->failed) return no_value();
         const CcIrTypeInfo *type = cc_ir_type_info(ctx->module, array.type);
+        if (type != NULL && type->kind == CC_IR_TYPE_STRUCT) {
+            uint32_t index = struct_field_index(ctx, type, expr->member.name);
+            if (index == CC_IR_NONE) {
+                error_at(ctx, expr->member.name,
+                         "IR lowering: unknown struct field");
+                return no_value();
+            }
+            CcIrInstruction *node = NULL;
+            Value result = append(ctx, CC_IR_GET_STRUCT,
+                                  type->members[index], expr->span, &node);
+            if (node != NULL) {
+                node->lhs = array.reg;
+                node->slot = index;
+            }
+            return result;
+        }
         if (type == NULL || type->kind != CC_IR_TYPE_ARRAY ||
             !name_is(ctx, expr->member.name, "len")) {
             error_at(ctx, expr->span,
@@ -1063,6 +1240,76 @@ static bool lower_index_assignment(Lower *ctx, const CcStatement *node)
     return true;
 }
 
+static bool lower_field_assignment(Lower *ctx, const CcStatement *node)
+{
+    const CcExpression *target = node->assignment.target;
+    if (target->member.operand->kind != CC_AST_EXPRESSION_IDENTIFIER) {
+        error_at(ctx, target->span,
+                 "IR lowering: field assignment requires named local");
+        return false;
+    }
+    LowerVar *variable =
+        find_variable(ctx, target->member.operand->identifier_name);
+    if (variable == NULL) {
+        error_at(ctx, target->span, "IR lowering: unknown struct binding");
+        return false;
+    }
+    const CcIrTypeInfo *info =
+        cc_ir_type_info(ctx->module, slot_type(ctx, variable->slot));
+    uint32_t index = struct_field_index(ctx, info, target->member.name);
+    if (index == CC_IR_NONE) {
+        error_at(ctx, target->span,
+                 "IR lowering: field assignment requires struct field");
+        return false;
+    }
+    CcIrType type = info->members[index];
+    CcIrOpcode opcode = CC_IR_ADD;
+    bool compound = node->assignment.operator != CC_AST_ASSIGNMENT_ASSIGN;
+    uint32_t old_slot = CC_IR_NONE;
+    if (compound) {
+        if (type != CC_IR_I32 ||
+            !compound_opcode(node->assignment.operator, &opcode)) {
+            error_at(ctx, target->span,
+                     "IR lowering: compound field assignment requires i32");
+            return false;
+        }
+        Value object = load(ctx, variable->slot, target->span);
+        if (ctx->failed) return false;
+        CcIrInstruction *get = NULL;
+        Value old = append(ctx, CC_IR_GET_STRUCT, type,
+                           target->span, &get);
+        if (get == NULL) return false;
+        get->lhs = object.reg;
+        get->slot = index;
+        old_slot = make_slot(ctx, type, target->span);
+        if (ctx->failed || !store(ctx, old_slot, old, target->span))
+            return false;
+    }
+    Value rhs = lower_expr(ctx, node->assignment.value, type);
+    if (ctx->failed || rhs.type != type) {
+        error_at(ctx, node->span, "IR lowering: struct field type mismatch");
+        return false;
+    }
+    if (compound) {
+        Value old = load(ctx, old_slot, node->span);
+        if (ctx->failed) return false;
+        CcIrInstruction *operation = NULL;
+        Value result = append(ctx, opcode, CC_IR_I32,
+                              node->span, &operation);
+        if (operation == NULL) return false;
+        operation->lhs = old.reg;
+        operation->rhs = rhs.reg;
+        rhs = result;
+    }
+    CcIrInstruction *set = NULL;
+    append(ctx, CC_IR_SET_FIELD, CC_IR_VOID, node->span, &set);
+    if (set == NULL) return false;
+    set->slot = variable->slot;
+    set->arg_count = index;
+    set->lhs = rhs.reg;
+    return true;
+}
+
 static bool lower_statement(Lower *ctx, const CcStatement *node)
 {
     switch (node->kind) {
@@ -1102,6 +1349,8 @@ static bool lower_statement(Lower *ctx, const CcStatement *node)
         return !ctx->failed;
     }
     case CC_AST_STATEMENT_ASSIGNMENT: {
+        if (node->assignment.target->kind == CC_AST_EXPRESSION_MEMBER)
+            return lower_field_assignment(ctx, node);
         if (node->assignment.target->kind == CC_AST_EXPRESSION_INDEX)
             return lower_index_assignment(ctx, node);
         if (node->assignment.target->kind != CC_AST_EXPRESSION_IDENTIFIER) {
@@ -1328,9 +1577,25 @@ bool cc_ir_lower(const CcSourceFile *file,
     ctx.module->file = file;
     ctx.module->type_count = 3;
 
+    for (const CcFunctionDeclaration *decl = program; decl != NULL;
+         decl = decl->next) {
+        if (decl->struct_decl == NULL) continue;
+        LowerStruct *entry = new_object(&ctx, sizeof(*entry), decl->span);
+        if (entry == NULL) return false;
+        entry->decl = decl->struct_decl;
+        entry->id = CC_IR_NONE;
+        entry->state = 0;
+        entry->next = ctx.structs;
+        ctx.structs = entry;
+    }
+    for (LowerStruct *entry = ctx.structs; entry != NULL;
+         entry = entry->next)
+        if (intern_struct(&ctx, entry) == CC_IR_NONE) return false;
+
     CcIrFunction **link = &ctx.module->functions;
     for (const CcFunctionDeclaration *decl = program; decl != NULL;
          decl = decl->next) {
+        if (decl->struct_decl != NULL) continue;
         CcIrFunction *function = new_object(&ctx, sizeof(*function), decl->span);
         if (function == NULL) return false;
         memset(function, 0, sizeof(*function));
@@ -1366,7 +1631,8 @@ bool cc_ir_lower(const CcSourceFile *file,
 
     ctx.function = ctx.module->functions;
     for (const CcFunctionDeclaration *decl = program; decl != NULL;
-         decl = decl->next, ctx.function = ctx.function->next) {
+         decl = decl->next) {
+        if (decl->struct_decl != NULL) continue;
         ctx.variables = NULL;
         ctx.loop = NULL;
         uint32_t index = 0;
@@ -1385,6 +1651,7 @@ bool cc_ir_lower(const CcSourceFile *file,
                 ctx.current->terminator = CC_IR_TRAP;
             }
         }
+        ctx.function = ctx.function->next;
     }
     *out = ctx.module;
     return true;

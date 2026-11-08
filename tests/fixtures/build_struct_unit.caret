@@ -1,0 +1,10 @@
+struct Wrapper { unit: (), empty: [0]i32, token: ?i32 }
+
+fn id(value: Wrapper) -> Wrapper {
+    return value;
+}
+
+fn main() -> i32 {
+    let item = id(Wrapper { token: none, empty: [], unit: () });
+    return 42;
+}

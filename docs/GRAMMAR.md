@@ -14,6 +14,9 @@ declaration   = attribute*, "pub"?, (function_decl | struct_decl |
                 static_decl | extern_decl) ;
 function_decl = "unsafe"?, "fn", IDENTIFIER, generic_params?,
                 "(", parameters?, ")", ("->", type)?, block ;
+struct_decl   = "struct", IDENTIFIER, "{",
+                (IDENTIFIER, ":", type, (",", IDENTIFIER, ":", type)*,
+                ","?)?, "}" ;
 type_decl     = "type", IDENTIFIER, "=", type, ";" ;
 block         = "{", statement*, expression?, "}" ;
 ```
@@ -66,6 +69,25 @@ remaining elements against `T`. A literal's length must match any
 explicit `[N]T` type. Types and values permit nesting with tuples,
 optionals, and other fixed arrays. Indexing uses `arr[index]`;
 fixed-array length uses `arr.len` and has type `usize`.
+
+## Nominal structures
+
+Top-level `struct Name { first: T, second: U, }` declares a nominal
+value type. Declarations may appear before or after the functions
+that reference them; `pub struct` is accepted, although visibility
+between modules is not yet enforced. Construct a value with named
+fields, e.g. `Name { second: x, first: y }`. Field order in a literal
+does not affect field-to-value binding, but source expressions are
+evaluated left-to-right exactly once. Every declared field must be
+present exactly once; a trailing comma is permitted. Empty structures
+use `Empty {}`. Read fields using `value.first`, or update a field on
+a mutable local with `value.first = x` or an `i32` compound update.
+Nested writes such as `value.child.first = x` are not implemented.
+Type equality is nominal: two distinct structure declarations do not
+interchange even if their fields have identical types and names.
+The parser disambiguates nonempty struct literals with named fields
+from a following control-flow block; parenthesize an empty struct
+literal in a condition.
 
 ## Operator precedence (highest to lowest)
 

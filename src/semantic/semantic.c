@@ -14,6 +14,7 @@ typedef enum {
     SEM_SLICE,
     SEM_ARRAY,
     SEM_TUPLE,
+    SEM_STRUCT,
     SEM_UNTYPED_INTEGER,
     SEM_RANGE
 } SemKind;
@@ -40,6 +41,13 @@ typedef struct SemElement SemElement;
 typedef struct SemVariable SemVariable;
 typedef struct SemFunction SemFunction;
 typedef struct SemParameter SemParameter;
+typedef struct SemStruct SemStruct;
+
+struct SemStruct {
+    const CcStructDeclaration *decl;
+    unsigned int state; /* 0 pending, 1 resolving, 2 validated. */
+    SemStruct *next;
+};
 
 struct SemElement {
     SemType *type;
@@ -54,6 +62,7 @@ struct SemType {
     uint64_t length;
     SemElement *elements;
     size_t count;
+    const CcStructDeclaration *struct_decl;
 };
 
 struct SemVariable {
@@ -82,6 +91,7 @@ typedef struct {
     CcArena *arena;
     CcSemanticError *error;
     SemFunction *functions;
+    SemStruct *structs;
     SemFunction *current_function;
     SemVariable *variables;
     unsigned int depth;
@@ -225,6 +235,7 @@ static bool same_type(const SemType *a, const SemType *b)
     case SEM_BOOL: return true;
     case SEM_INTEGER:
     case SEM_FLOAT: return a->primitive == b->primitive;
+    case SEM_STRUCT: return a->struct_decl == b->struct_decl;
     case SEM_OPTIONAL:
     case SEM_RANGE: return same_type(a->inner, b->inner);
     case SEM_POINTER:
@@ -326,6 +337,14 @@ static bool const_integer(const CcExpression *expr, uint64_t *out)
     }
 }
 
+static SemStruct *find_struct(SemContext *ctx, CcSourceSpan name)
+{
+    for (SemStruct *entry = ctx->structs; entry != NULL;
+         entry = entry->next)
+        if (same_name(ctx, name, entry->decl->name)) return entry;
+    return NULL;
+}
+
 static SemType *resolve_type(SemContext *ctx, const CcType *node)
 {
     if (node == NULL) return NULL;
@@ -336,6 +355,12 @@ static SemType *resolve_type(SemContext *ctx, const CcType *node)
              i++) {
             if (name_is(ctx, node->span, primitives[i].name))
                 return builtin(ctx, primitives[i].id, node->span);
+        }
+        SemStruct *record = find_struct(ctx, node->span);
+        if (record != NULL) {
+            SemType *type = new_type(ctx, SEM_STRUCT, node->span);
+            if (type != NULL) type->struct_decl = record->decl;
+            return type;
         }
 
         fail(ctx, node->span, "unknown type");
@@ -402,6 +427,84 @@ static SemType *resolve_type(SemContext *ctx, const CcType *node)
 
     fail(ctx, node->span, "unsupported type syntax");
     return NULL;
+}
+
+static bool validate_struct(SemContext *ctx, SemStruct *record);
+
+static bool validate_struct_type(SemContext *ctx, const SemType *type,
+                                 CcSourceSpan span)
+{
+    if (type == NULL) return false;
+    if (type->kind == SEM_VOID) {
+        fail(ctx, span, "struct field cannot have void type");
+        return false;
+    }
+    if (type->kind == SEM_STRUCT) {
+        SemStruct *target = find_struct(ctx, type->struct_decl->name);
+        return target != NULL && validate_struct(ctx, target);
+    }
+    if (type->kind == SEM_ARRAY || type->kind == SEM_OPTIONAL ||
+        type->kind == SEM_POINTER || type->kind == SEM_SLICE)
+        return validate_struct_type(ctx, type->inner, span);
+    if (type->kind == SEM_TUPLE) {
+        for (const SemElement *member = type->elements; member != NULL;
+             member = member->next)
+            if (!validate_struct_type(ctx, member->type, span)) return false;
+    }
+    return true;
+}
+
+static bool validate_struct(SemContext *ctx, SemStruct *record)
+{
+    if (record->state == 2) return true;
+    if (record->state == 1) {
+        fail(ctx, record->decl->name, "recursive struct value type");
+        return false;
+    }
+    record->state = 1;
+    for (const CcStructField *field = record->decl->fields; field != NULL;
+         field = field->next) {
+        for (const CcStructField *previous = record->decl->fields;
+             previous != field; previous = previous->next)
+            if (same_name(ctx, previous->name, field->name)) {
+                fail(ctx, field->name, "duplicate struct field");
+                return false;
+            }
+        SemType *type = resolve_type(ctx, field->type);
+        if (type == NULL || !validate_struct_type(ctx, type, field->type->span))
+            return false;
+    }
+    record->state = 2;
+    return true;
+}
+
+static bool register_structs(SemContext *ctx,
+                             const CcFunctionDeclaration *program)
+{
+    for (const CcFunctionDeclaration *node = program; node != NULL;
+         node = node->next) {
+        if (node->struct_decl == NULL) continue;
+        for (size_t i = 0; i < sizeof(primitives) / sizeof(primitives[0]);
+             i++)
+            if (name_is(ctx, node->name, primitives[i].name)) {
+                fail(ctx, node->name, "struct name conflicts with builtin");
+                return false;
+            }
+        if (find_struct(ctx, node->name) != NULL) {
+            fail(ctx, node->name, "duplicate struct name");
+            return false;
+        }
+        SemStruct *record = arena_alloc(ctx, sizeof(*record), node->span);
+        if (record == NULL) return false;
+        record->decl = node->struct_decl;
+        record->state = 0;
+        record->next = ctx->structs;
+        ctx->structs = record;
+    }
+    for (SemStruct *record = ctx->structs; record != NULL;
+         record = record->next)
+        if (!validate_struct(ctx, record)) return false;
+    return true;
 }
 
 static SemVariable *find_variable(SemContext *ctx, CcSourceSpan name)
@@ -757,6 +860,54 @@ static SemType *check_expr(SemContext *ctx, const CcExpression *expr,
         array->inner = element;
         return coerce(ctx, array, expected, expr->span);
     }
+    case CC_AST_EXPRESSION_STRUCT: {
+        SemStruct *record = find_struct(ctx, expr->struct_literal.name);
+        if (record == NULL) {
+            fail(ctx, expr->struct_literal.name, "unknown struct type");
+            return NULL;
+        }
+        SemType *type = new_type(ctx, SEM_STRUCT, expr->span);
+        if (type == NULL) return NULL;
+        type->struct_decl = record->decl;
+        if (expected != NULL && !same_type(type, expected)) {
+            fail(ctx, expr->span, "struct literal type mismatch");
+            return NULL;
+        }
+        for (const CcStructFieldValue *part = expr->struct_literal.fields;
+             part != NULL; part = part->next) {
+            const CcStructField *member = record->decl->fields;
+            while (member != NULL &&
+                   !same_name(ctx, member->name, part->name))
+                member = member->next;
+            if (member == NULL) {
+                fail(ctx, part->name, "unknown struct field");
+                return NULL;
+            }
+            for (const CcStructFieldValue *previous =
+                     expr->struct_literal.fields; previous != part;
+                 previous = previous->next)
+                if (same_name(ctx, previous->name, part->name)) {
+                    fail(ctx, part->name, "duplicate struct initializer field");
+                    return NULL;
+                }
+            SemType *field_type = resolve_type(ctx, member->type);
+            if (field_type == NULL ||
+                check_expr(ctx, part->value, field_type) == NULL)
+                return NULL;
+        }
+        for (const CcStructField *member = record->decl->fields;
+             member != NULL; member = member->next) {
+            bool found = false;
+            for (const CcStructFieldValue *part = expr->struct_literal.fields;
+                 part != NULL; part = part->next)
+                if (same_name(ctx, member->name, part->name)) found = true;
+            if (!found) {
+                fail(ctx, expr->span, "missing struct initializer field");
+                return NULL;
+            }
+        }
+        return coerce(ctx, type, expected, expr->span);
+    }
     case CC_AST_EXPRESSION_NONE_LITERAL:
         if (expected == NULL || expected->kind != SEM_OPTIONAL) {
             fail(ctx, expr->span, "none requires an optional type context");
@@ -929,6 +1080,17 @@ static SemType *check_expr(SemContext *ctx, const CcExpression *expr,
         SemType *base = check_expr(ctx, expr->member.operand, NULL);
 
         if (base == NULL) return NULL;
+        if (base->kind == SEM_STRUCT) {
+            for (const CcStructField *member = base->struct_decl->fields;
+                 member != NULL; member = member->next)
+                if (same_name(ctx, member->name, expr->member.name)) {
+                    SemType *type = resolve_type(ctx, member->type);
+                    return type == NULL ? NULL :
+                        coerce(ctx, type, expected, expr->span);
+                }
+            fail(ctx, expr->member.name, "unknown struct field");
+            return NULL;
+        }
         if (!name_is(ctx, expr->member.name, "len") ||
             (base->kind != SEM_ARRAY && base->kind != SEM_SLICE)) {
             fail(ctx, expr->member.name, "unknown member");
@@ -1020,6 +1182,42 @@ static bool check_statement(SemContext *ctx, const CcStatement *statement)
     case CC_AST_STATEMENT_ASSIGNMENT: {
         const CcExpression *target = statement->assignment.target;
 
+        if (target->kind == CC_AST_EXPRESSION_MEMBER &&
+            target->member.operand->kind == CC_AST_EXPRESSION_IDENTIFIER) {
+            SemVariable *base =
+                find_variable(ctx, target->member.operand->identifier_name);
+            if (base == NULL) {
+                fail(ctx, target->member.operand->span, "undefined name");
+                return false;
+            }
+            if (!base->mutable) {
+                fail(ctx, target->span, "cannot assign to immutable binding");
+                return false;
+            }
+            if (base->type->kind != SEM_STRUCT) {
+                fail(ctx, target->span, "field assignment requires a struct");
+                return false;
+            }
+            const CcStructField *field = base->type->struct_decl->fields;
+            while (field != NULL &&
+                   !same_name(ctx, field->name, target->member.name))
+                field = field->next;
+            if (field == NULL) {
+                fail(ctx, target->member.name, "unknown struct field");
+                return false;
+            }
+            SemType *field_type = resolve_type(ctx, field->type);
+            if (field_type == NULL) return false;
+            if (statement->assignment.operator != CC_AST_ASSIGNMENT_ASSIGN &&
+                field_type->kind != SEM_INTEGER &&
+                field_type->kind != SEM_FLOAT) {
+                fail(ctx, target->span,
+                     "compound assignment requires a numeric variable");
+                return false;
+            }
+            return check_expr(ctx, statement->assignment.value, field_type)
+                != NULL;
+        }
         if (target->kind == CC_AST_EXPRESSION_INDEX &&
             target->index.operand->kind == CC_AST_EXPRESSION_IDENTIFIER) {
             SemVariable *base =
@@ -1213,6 +1411,11 @@ static bool register_functions(SemContext *ctx,
 
     for (const CcFunctionDeclaration *decl = functions; decl != NULL;
          decl = decl->next) {
+        if (decl->struct_decl != NULL) continue;
+        if (find_struct(ctx, decl->name) != NULL) {
+            fail(ctx, decl->name, "function name conflicts with struct");
+            return false;
+        }
         if (find_function(ctx, decl->name) != NULL) {
             fail(ctx, decl->name, "duplicate function name");
             return false;
@@ -1290,7 +1493,8 @@ bool cc_semantic_check(const CcSourceFile *file,
     ctx.arena = arena;
     ctx.error = error;
 
-    if (!register_functions(&ctx, functions)) return false;
+    if (!register_structs(&ctx, functions) ||
+        !register_functions(&ctx, functions)) return false;
 
     for (SemFunction *function = ctx.functions; function != NULL;
          function = function->next) {

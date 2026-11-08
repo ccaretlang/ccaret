@@ -1,0 +1,13 @@
+pub struct Item { value: i32 }
+struct Box { items: [2]Item, flag: bool }
+
+fn main() -> i32 {
+    let box = Box {
+        flag: true,
+        items: [Item { value: 20 }, Item { value: 22 }],
+    };
+    if box.flag {
+        return box.items[0].value + box.items[1].value;
+    }
+    return 0;
+}

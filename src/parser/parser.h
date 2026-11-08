@@ -12,6 +12,7 @@ typedef struct {
     bool failed;
     CcSourceSpan error_span;
     const char *error;
+    bool before_block;
 } CcParser;
 
 void cc_parser_init(CcParser *parser, CcLexer *lexer, CcArena *arena);

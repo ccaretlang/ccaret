@@ -67,6 +67,16 @@ enum Message { Quit, Move(Vec2), Text([]const u8), }
 @repr(c) union Bits { word: u32, bytes: [4]u8, }
 ```
 
+The bootstrap compiler supports **nominal** struct declarations with
+named fields, empty structs and `Name { field: expression, ... }` value
+construction. All fields must be initialized exactly once. Two distinct
+struct names are incompatible even with identical fields. Struct
+values copy by value, including parameters and return values; a
+mutable local can update one of its fields. Struct types may nest
+inside fixed arrays, tuples, optionals and other structs. Recursive
+by-value structures (direct or indirect) are rejected; pointers to
+recursive types await the later pointer milestone.
+
 An enum with a payload is a tagged sum and supports exhaustive `match`. A raw union has no tag. Reading a field that does not hold a valid value is the programmer's responsibility. Fields are private unless marked `pub`.
 
 Default aggregate layout is controlled by the compiler. `@repr(c)` asks for the target C layout. Layout constraints are in [ABI.md](ABI.md).

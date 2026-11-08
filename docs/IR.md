@@ -10,7 +10,8 @@ The first version now uses a typed, basic-block, non-SSA IR. Each function
 has typed parameters, local slots, temporaries, basic blocks and explicit
 terminators. Lowering supports `i32`, `bool`, `void`, a restricted `usize`,
 structural tuples (including zero- and one-element tuples), optional `?T`
-values and fixed arrays `[N]T` including nested aggregate types.
+values, fixed arrays `[N]T` and nominal `struct` values, including
+nested aggregate types.
 Other source types still fail explicitly at IR
 lowering. SSA can be added later if measurements show it is worthwhile.
 
@@ -24,11 +25,13 @@ block entry:
 Composite types have canonical, module-local IDs starting at `3` (IDs
 `0`–`2` designate `void`, `i32`, `bool`; `usize` has a distinct
 reserved builtin ID). Identical structural types
-are interned once. Tuple members, optional payloads and array elements are
+are interned once, but distinct nominal structs retain distinct IDs even
+when their fields have identical names and types. Tuple members, optional
+payloads, array elements and struct field types are
 defined before the enclosing type, and the verifier rejects invalid,
 forward, self-referential or duplicate composite definitions. `emit-ir`
-prints type definitions such as `type t3 = (i32, bool)` and
-`type t4 = ?t3`.
+prints type definitions such as `type t3 = (i32, bool)`,
+`type t4 = ?t3` and `type t5 = struct Point { x: i32, y: i32 }`.
 
 ## Implemented instruction families
 
@@ -38,7 +41,7 @@ prints type definitions such as `type t3 = (i32, bool)` and
 | Arithmetic | Checked `add`, `sub`, `mul`, `div`, `mod`, unary `neg`; `add.wrap`, `sub.wrap`, `mul.wrap` for `i32` |
 | Logic | `not`, `bit.not`, `bit.and`, `bit.or`, `bit.xor`, equality and ordered comparisons |
 | Locals | `load`, `store` with typed slots |
-| Aggregates | `tuple`/`tuple.get`, `array` (construct), `array.get` (checked index), `array.store` (checked mutable local write) |
+| Aggregates | `tuple`/`tuple.get`, `array` (construct), `array.get` (checked index), `array.store` (checked mutable local write); `struct`/`struct.get`/`struct.set` (named field values) |
 | Tagged values | `some`, `none` (construct optional values) |
 | Calls | Direct `call`, including aggregate parameters and results |
 | Control | `br`, `condbr`, `ret`, `trap` |
@@ -67,6 +70,15 @@ array type, arity, bounds metadata and register types before C17 output.
 `.len` evaluates its base expression and yields a `const.usize`
 of its static length. This milestone supports `usize` values and
 equality but not general `usize` arithmetic.
+The nominal `struct` constructor has one typed operand per declared
+field, in declaration order. Source field initializers are evaluated
+left-to-right into temporary slots before construction, even if the
+source lists fields in a different order. `struct.get` reads a field
+from a typed aggregate register; `struct.set` updates a named field
+of a typed local struct slot, with `i32` compound updates lowered
+through checked arithmetic. The verifier independently validates
+nominal names, field names, member type dependencies, operand types
+and field indices. Recursive by-value struct graphs are rejected.
 Optional unwrapping, `match`, `try`, `defer`, and their control-flow
 lowerings remain future work. Boolean short-circuiting appears explicitly
 in the CFG. Traps must not become C undefined behavior.
@@ -113,8 +125,9 @@ Every backend receives a documented IR form and must preserve observable C^ sema
 Tests cover `return 42`, calls, recursion, arithmetic, branches, loops,
 short-circuit control flow, exclusive/inclusive range loops and edge
 values, compound assignment, bitwise/wrapping arithmetic,
-fixed-array constructors, copies, nested values, checked reads/writes
-and trap cases,
+fixed-array constructors, nominal struct constructors/copies, fields,
+forward-declared dependencies, nested values, checked reads/writes and
+trap cases,
 tuple/optional propagation, the executable
 `divmod` tuple-return example, and intentionally corrupted IR. A stable
 external ABI for aggregates, `match`, cleanup, aliasing and full IR

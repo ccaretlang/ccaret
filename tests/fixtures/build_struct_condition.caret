@@ -1,0 +1,8 @@
+struct Flag { yes: bool }
+
+fn main() -> i32 {
+    if Flag { yes: true }.yes {
+        return 42;
+    }
+    return 0;
+}

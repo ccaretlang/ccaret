@@ -49,6 +49,9 @@ static const char *op_name(CcIrOpcode op)
     case CC_IR_MAKE_ARRAY: return "array";
     case CC_IR_GET_ARRAY: return "array.get";
     case CC_IR_STORE_INDEX: return "array.store";
+    case CC_IR_MAKE_STRUCT: return "struct";
+    case CC_IR_GET_STRUCT: return "struct.get";
+    case CC_IR_SET_FIELD: return "struct.set";
     }
     return "invalid";
 }
@@ -65,6 +68,18 @@ bool cc_ir_print(FILE *out, const CcIrModule *module)
         } else if (type->kind == CC_IR_TYPE_ARRAY) {
             fprintf(out, "[%u]", type->count);
             print_type(out, type->inner);
+        } else if (type->kind == CC_IR_TYPE_STRUCT) {
+            CcSourceSpan name = type->name;
+            fprintf(out, "struct %.*s {", (int)(name.end - name.start),
+                    module->file->bytes + name.start);
+            for (uint32_t m = 0; m < type->count; m++) {
+                CcSourceSpan field = type->field_names[m];
+                fprintf(out, "%s%.*s: ", m == 0 ? " " : ", ",
+                        (int)(field.end - field.start),
+                        module->file->bytes + field.start);
+                print_type(out, type->members[m]);
+            }
+            fputs(" }", out);
         } else {
             fputc('(', out);
             for (uint32_t m = 0; m < type->count; m++) {
@@ -135,6 +150,7 @@ bool cc_ir_print(FILE *out, const CcIrModule *module)
                 case CC_IR_MAKE_NONE:
                     break;
                 case CC_IR_MAKE_ARRAY:
+                case CC_IR_MAKE_STRUCT:
                     fputc('(', out);
                     for (uint32_t p = 0; p < i->arg_count; p++)
                         fprintf(out, "%s%%%u", p == 0 ? "" : ", ",
@@ -148,6 +164,13 @@ bool cc_ir_print(FILE *out, const CcIrModule *module)
                 case CC_IR_STORE_INDEX:
                     fprintf(out, " slot%u[%%%u] = %%%u (length %u)",
                             i->slot, i->lhs, i->rhs, i->arg_count);
+                    break;
+                case CC_IR_GET_STRUCT:
+                    fprintf(out, " %%%u.%u", i->lhs, i->slot);
+                    break;
+                case CC_IR_SET_FIELD:
+                    fprintf(out, " slot%u.%u = %%%u",
+                            i->slot, i->arg_count, i->lhs);
                     break;
                 default:
                     fprintf(out, " %%%u, %%%u", i->lhs, i->rhs);

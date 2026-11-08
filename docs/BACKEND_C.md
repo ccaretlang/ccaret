@@ -1,7 +1,8 @@
 # C17 backend and executable pipeline
 
 The C^ bootstrap compiler can produce executables for a **restricted typed
-subset**, including structural tuples and optional values. The C backend
+subset**, including structural tuples, fixed arrays, nominal structs
+and optional values. The C backend
 consumes only independently verified typed IR, never the AST.
 
 ## Commands
@@ -53,6 +54,13 @@ entry point is `fn main() -> i32`.
   Negative or out-of-range indices call `abort()` instead of accessing
   invalid memory. Indexed `i32` compound assignments use checked
   arithmetic; values and indices are evaluated once.
+- Nominal `struct Name { x: T, y: U }` declarations, forward references
+  to other nonrecursive structs, literal construction with named fields
+  in any source order, field reads, and updates to direct fields of
+  mutable local structs. `i32` compound field assignments use checked
+  arithmetic. Struct parameters and results, empty structs, value copies
+  and nesting with tuples/optionals/arrays are supported. Different
+  named structs are never structurally interchangeable.
 - Arguments are lowered left-to-right before the C function call, so the
   generated C's unspecified argument evaluation order has no effect.
   Tuple elements are similarly sequenced before construction.
@@ -64,6 +72,9 @@ empty structs are not standard C17. Optionals use a `bool has` tag and a
 typed `value` payload. Arrays use a fixed `elements[N]` field, or a
 dummy byte for `N = 0`, because zero-length C arrays are not standard
 C17. Array lengths are limited to 65536 in this bootstrap backend.
+Nominal structs use one C17 typedef per declaration, with deterministic
+`f0`, `f1`, ... fields in source declaration order; empty structs
+also have a dummy byte. Struct types are emitted after their dependencies.
 This is an **internal implementation layout**, not
 a stable language or foreign-function ABI.
 
@@ -82,7 +93,7 @@ wrapping/cast decisions remain open.
 
 ## Not yet supported by the backend
 
-Slices, pointers, floating-point values, user-defined types,
+Slices, pointers, floating-point values, enums, unions, type aliases,
 signed shifts (`<<`, `>>`, `<<=`, `>>=`) and multi-width integer
 arithmetic have not yet been lowered. Signed right-shift semantics
 are still open in the language specification. Optional
@@ -90,6 +101,10 @@ inspection/unwrapping and pattern matching are not yet implemented.
 Nested indexed assignment (`a[i][j] = x`), slice creation/indexing,
 arbitrary `usize` arithmetic and indexed targets other than a named
 mutable array local are not yet supported.
+Nested struct field writes (`object.child.value = x`) are not yet
+supported; directly assigned struct fields must belong to a `var`
+local. Recursive struct value types are disallowed. Struct visibility
+between modules and C foreign-function layout are not implemented.
 Some unsupported constructs already parse and type-check, but fail
 explicitly at IR lowering rather than producing a misleading executable.
 
@@ -109,6 +124,9 @@ boundaries and loop control flow, compound updates, and wrapping/bitwise
 arithmetic. These outputs are also compiled with strict C17 warnings at
 `-O2`. Array tests exercise construction, copies, `.len`,
 array-of-array/tuple/optional values, reads/writes, bounds traps and
-noncanonical or corrupted IR. The IR unit suite
+noncanonical or corrupted IR. Nominal struct tests cover field order,
+copies, forward references, parameters/returns, nested aggregates,
+field writes, checked overflow traps and invalid declarations.
+The IR unit suite
 deliberately mutates valid IR to test refusal of malformed instructions,
 types, constructors, projections and terminators.

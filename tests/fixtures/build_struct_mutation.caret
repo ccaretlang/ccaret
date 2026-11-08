@@ -1,0 +1,7 @@
+struct Pair { x: i32, y: i32 }
+
+fn main() -> i32 {
+    var p = Pair { x: 20, y: 22 };
+    p.x = 30;
+    return p.x + p.y - 10;
+}

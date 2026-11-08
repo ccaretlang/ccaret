@@ -533,6 +533,58 @@ static CcExpression *parse_postfix(CcParser *parser)
     if (parser->failed || expression == NULL) return NULL;
 
     for (;;) {
+        bool named_fields = false;
+        if (parser->current.kind == CC_TOKEN_LBRACE &&
+            parser->before_block) {
+            CcLexer peek = *parser->lexer;
+            CcToken first = cc_lexer_next(&peek);
+            CcToken second = cc_lexer_next(&peek);
+            named_fields = first.kind == CC_TOKEN_IDENTIFIER &&
+                           second.kind == CC_TOKEN_COLON;
+        }
+        if (parser->current.kind == CC_TOKEN_LBRACE &&
+            expression->kind == CC_AST_EXPRESSION_IDENTIFIER &&
+            (!parser->before_block || named_fields)) {
+            advance(parser);
+            CcStructFieldValue *fields = NULL;
+            CcStructFieldValue **link = &fields;
+            while (parser->current.kind != CC_TOKEN_RBRACE) {
+                CcToken name;
+                if (!expect(parser, CC_TOKEN_IDENTIFIER,
+                            "expected struct field name", &name))
+                    return NULL;
+                if (!expect(parser, CC_TOKEN_COLON,
+                            "expected `:` after struct field name", NULL))
+                    return NULL;
+                bool saved = parser->before_block;
+                parser->before_block = false;
+                CcExpression *value = parse_expression(parser);
+                parser->before_block = saved;
+                if (parser->failed || value == NULL) return NULL;
+                CcStructFieldValue *field = allocate(parser, sizeof(*field));
+                if (field == NULL) return NULL;
+                field->name = name.span;
+                field->value = value;
+                field->next = NULL;
+                *link = field;
+                link = &field->next;
+                if (!accept(parser, CC_TOKEN_COMMA, NULL)) break;
+                if (parser->current.kind == CC_TOKEN_RBRACE) break;
+            }
+            CcToken end;
+            if (!expect(parser, CC_TOKEN_RBRACE,
+                        "expected `}` after struct literal", &end))
+                return NULL;
+            CcExpression *literal = allocate(parser, sizeof(*literal));
+            if (literal == NULL) return NULL;
+            literal->kind = CC_AST_EXPRESSION_STRUCT;
+            literal->span = expression->span;
+            literal->span.end = end.span.end;
+            literal->struct_literal.name = expression->identifier_name;
+            literal->struct_literal.fields = fields;
+            expression = literal;
+            continue;
+        }
         if (parser->current.kind == CC_TOKEN_LPAREN) {
             advance(parser);
 
@@ -1331,7 +1383,10 @@ static CcIf *parse_if(CcParser *parser)
 
     advance(parser);
 
+    bool saved = parser->before_block;
+    parser->before_block = true;
     CcExpression *condition = parse_expression(parser);
+    parser->before_block = saved;
 
     if (parser->failed || condition == NULL) return NULL;
 
@@ -1380,7 +1435,10 @@ static CcWhile *parse_while(CcParser *parser)
 
     advance(parser);
 
+    bool saved = parser->before_block;
+    parser->before_block = true;
     CcExpression *condition = parse_expression(parser);
+    parser->before_block = saved;
 
     if (parser->failed || condition == NULL) return NULL;
 
@@ -1463,7 +1521,10 @@ static CcFor *parse_for(CcParser *parser)
                 NULL))
         return NULL;
 
+    bool saved = parser->before_block;
+    parser->before_block = true;
     CcExpression *range = parse_expression(parser);
+    parser->before_block = saved;
 
     if (parser->failed || range == NULL) return NULL;
 
@@ -1549,8 +1610,69 @@ static CcFunctionDeclaration *parse_function(CcParser *parser)
     function->return_type = return_type;
     function->body = body;
     function->next = NULL;
+    function->struct_decl = NULL;
 
     return function;
+}
+
+static CcFunctionDeclaration *parse_struct(CcParser *parser)
+{
+    uint32_t start = parser->current.span.start;
+    bool is_public = accept(parser, CC_TOKEN_KW_PUB, NULL);
+    CcToken keyword;
+    if (!expect(parser, CC_TOKEN_KW_STRUCT,
+                "expected struct declaration", &keyword))
+        return NULL;
+    CcToken name;
+    if (!expect(parser, CC_TOKEN_IDENTIFIER, "expected struct name", &name))
+        return NULL;
+    if (!expect(parser, CC_TOKEN_LBRACE,
+                "expected `{` after struct name", NULL))
+        return NULL;
+    CcStructField *fields = NULL;
+    CcStructField **link = &fields;
+    while (parser->current.kind != CC_TOKEN_RBRACE) {
+        CcToken field_name;
+        if (!expect(parser, CC_TOKEN_IDENTIFIER,
+                    "expected field name", &field_name))
+            return NULL;
+        if (!expect(parser, CC_TOKEN_COLON,
+                    "expected `:` after field name", NULL))
+            return NULL;
+        CcType *type = parse_type(parser);
+        if (parser->failed || type == NULL) return NULL;
+        CcStructField *field = allocate(parser, sizeof(*field));
+        if (field == NULL) return NULL;
+        field->name = field_name.span;
+        field->type = type;
+        field->next = NULL;
+        *link = field;
+        link = &field->next;
+        if (!accept(parser, CC_TOKEN_COMMA, NULL)) break;
+        if (parser->current.kind == CC_TOKEN_RBRACE) break;
+    }
+    CcToken ending;
+    if (!expect(parser, CC_TOKEN_RBRACE,
+                "expected `}` after struct declaration", &ending))
+        return NULL;
+    CcStructDeclaration *decl = allocate(parser, sizeof(*decl));
+    CcFunctionDeclaration *item = allocate(parser, sizeof(*item));
+    if (decl == NULL || item == NULL) return NULL;
+    decl->span = keyword.span;
+    decl->span.start = start;
+    decl->span.end = ending.span.end;
+    decl->name = name.span;
+    decl->is_public = is_public;
+    decl->fields = fields;
+    item->span = decl->span;
+    item->name = decl->name;
+    item->is_public = is_public;
+    item->parameters = NULL;
+    item->return_type = NULL;
+    item->body = NULL;
+    item->struct_decl = decl;
+    item->next = NULL;
+    return item;
 }
 
 void cc_parser_init(CcParser *parser, CcLexer *lexer, CcArena *arena)
@@ -1561,6 +1683,7 @@ void cc_parser_init(CcParser *parser, CcLexer *lexer, CcArena *arena)
     parser->arena = arena;
     parser->failed = false;
     parser->error = NULL;
+    parser->before_block = false;
     parser->error_span.file_id = CC_FILE_ID_INVALID;
     parser->error_span.start = 0;
     parser->error_span.end = 0;
@@ -1588,12 +1711,20 @@ CcFunctionDeclaration *cc_parser_parse_program(CcParser *parser)
 
     while (!parser->failed && parser->current.kind != CC_TOKEN_EOF) {
         if (parser->current.kind != CC_TOKEN_KW_FN &&
+            parser->current.kind != CC_TOKEN_KW_STRUCT &&
             parser->current.kind != CC_TOKEN_KW_PUB) {
-            report_error(parser, "expected function declaration");
+            report_error(parser, "expected function or struct declaration");
             break;
         }
 
-        CcFunctionDeclaration *function = parse_function(parser);
+        CcTokenKind kind = parser->current.kind;
+        if (kind == CC_TOKEN_KW_PUB) {
+            CcLexer peek = *parser->lexer;
+            kind = cc_lexer_next(&peek).kind;
+        }
+        CcFunctionDeclaration *function =
+            kind == CC_TOKEN_KW_STRUCT ? parse_struct(parser)
+                                       : parse_function(parser);
 
         if (parser->failed || function == NULL) break;
 

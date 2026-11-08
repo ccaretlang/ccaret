@@ -1,0 +1,20 @@
+struct Pair { first: i32, second: i32 }
+
+fn make(n: i32) -> Pair {
+    return Pair { first: n, second: n + 1 };
+}
+
+fn pass(p: Pair) -> i32 {
+    return p.first + p.second;
+}
+
+fn main() -> i32 {
+    var first = make(10);
+    var copy = first;
+    copy.first = 20;
+    first.second += 1;
+    if pass(copy) == 31 && pass(first) == 22 {
+        return 42;
+    }
+    return 0;
+}

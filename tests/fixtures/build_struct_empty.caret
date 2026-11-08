@@ -1,0 +1,10 @@
+struct Marker {}
+
+fn pass(value: Marker) -> Marker {
+    return value;
+}
+
+fn main() -> i32 {
+    let marker = pass(Marker {});
+    return 42;
+}

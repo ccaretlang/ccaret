@@ -566,6 +566,136 @@ static void test_array_ir_and_verifier(void)
     fixture_destroy(&f);
 }
 
+static void test_struct_ir_and_verifier(void)
+{
+    Fixture f;
+    fixture_init(&f,
+        "struct Pair { x: i32, y: i32 }"
+        "fn main() -> i32 {"
+        " let flag: bool = true;"
+        " var p = Pair { y: 22, x: 20 };"
+        " p.x += 1; return p.x + p.y; }");
+    lower(&f);
+    assert(f.module->type_count == 4);
+    CcIrTypeInfo *type = f.module->types;
+    assert(type != NULL && type->kind == CC_IR_TYPE_STRUCT);
+    assert(type->count == 2 && type->members[0] == CC_IR_I32 &&
+           type->members[1] == CC_IR_I32);
+    CcIrFunction *fn = f.module->functions;
+    CcIrInstruction *make = find_instruction(fn, CC_IR_MAKE_STRUCT);
+    CcIrInstruction *get = find_instruction(fn, CC_IR_GET_STRUCT);
+    CcIrInstruction *set = find_instruction(fn, CC_IR_SET_FIELD);
+    CcIrInstruction *boolean = find_instruction(fn, CC_IR_CONST_BOOL);
+    assert(make && get && set && boolean);
+
+    FILE *out = tmpfile();
+    assert(out != NULL && cc_ir_print(out, f.module));
+    rewind(out);
+    char text[16384];
+    size_t n = fread(text, 1, sizeof(text) - 1, out);
+    text[n] = '\0';
+    assert(strstr(text, "type t3 = struct Pair { x: i32, y: i32 }") != NULL);
+    assert(strstr(text, "struct(") != NULL);
+    assert(strstr(text, "struct.get") != NULL);
+    assert(strstr(text, "struct.set") != NULL);
+    assert(fclose(out) == 0);
+
+    uint32_t count = make->arg_count;
+    make->arg_count = 1;
+    expect_invalid(f.module, "IR verifier: invalid struct constructor");
+    make->arg_count = count;
+    uint32_t original_arg = make->args[0];
+    make->args[0] = boolean->result;
+    expect_invalid(f.module,
+        "IR verifier: undefined, cross-block or mistyped register");
+    make->args[0] = original_arg;
+    uint32_t original_field = get->slot;
+    get->slot = 5;
+    expect_invalid(f.module, "IR verifier: invalid struct projection");
+    get->slot = original_field;
+    CcIrType original_type = get->type;
+    get->type = CC_IR_BOOL;
+    expect_invalid(f.module, "IR verifier: invalid struct projection");
+    get->type = original_type;
+    uint32_t original_slot = set->slot;
+    set->slot = 0; /* Boolean binding, not a struct slot. */
+    expect_invalid(f.module, "IR verifier: invalid struct field store");
+    set->slot = original_slot;
+    uint32_t original_field_set = set->arg_count;
+    set->arg_count = 99;
+    expect_invalid(f.module, "IR verifier: invalid struct field store");
+    set->arg_count = original_field_set;
+    uint32_t original_value = set->lhs;
+    set->lhs = boolean->result;
+    expect_invalid(f.module, "IR verifier: invalid struct field store");
+    set->lhs = original_value;
+
+    CcIrType saved = type->members[0];
+    type->members[0] = CC_IR_VOID;
+    expect_invalid(f.module, "IR verifier: invalid struct field type");
+    type->members[0] = saved;
+    CcSourceSpan saved_name = type->field_names[0];
+    type->field_names[0] = type->field_names[1];
+    expect_invalid(f.module, "IR verifier: duplicate struct field");
+    type->field_names[0] = saved_name;
+    saved_name = type->name;
+    type->name.end = (uint32_t)f.module->file->length + 1;
+    expect_invalid(f.module, "IR verifier: invalid struct type");
+    type->name = saved_name;
+    CcIrTypeInfo duplicate = *type;
+    duplicate.id = 4;
+    duplicate.next = NULL;
+    type->next = &duplicate;
+    f.module->type_count++;
+    expect_invalid(f.module, "IR verifier: duplicate composite type");
+    f.module->type_count--;
+    type->next = NULL;
+
+    CcIrError error;
+    assert(cc_ir_verify(f.module, &error));
+    out = tmpfile();
+    assert(out != NULL && cc_c_emit(out, f.module, &error));
+    rewind(out);
+    n = fread(text, 1, sizeof(text) - 1, out);
+    text[n] = '\0';
+    assert(strstr(text, ".f0 =") != NULL);
+    assert(strstr(text, "} cc_t_3;") != NULL);
+    assert(fclose(out) == 0);
+    fixture_destroy(&f);
+}
+
+static void test_nominal_and_forward_struct_types(void)
+{
+    Fixture f;
+    fixture_init(&f,
+        "struct Outer { child: Child }"
+        "struct Child { n: i32 }"
+        "struct A { n: i32 } struct B { n: i32 }"
+        "fn main() -> i32 {"
+        " let a = A { n: 20 }; let b = B { n: 22 };"
+        " let outer = Outer { child: Child { n: 1 } };"
+        " return a.n + b.n; }");
+    lower(&f);
+    assert(f.module->type_count == 7);
+    const CcIrTypeInfo *child = NULL, *outer = NULL;
+    const CcIrTypeInfo *a = NULL, *b = NULL;
+    for (const CcIrTypeInfo *type = f.module->types; type != NULL;
+         type = type->next) {
+        const unsigned char *name = f.module->file->bytes + type->name.start;
+        size_t len = type->name.end - type->name.start;
+        if (len == 5 && memcmp(name, "Child", 5) == 0) child = type;
+        if (len == 5 && memcmp(name, "Outer", 5) == 0) outer = type;
+        if (len == 1 && name[0] == 'A') a = type;
+        if (len == 1 && name[0] == 'B') b = type;
+    }
+    assert(child && outer && a && b);
+    assert(child->kind == CC_IR_TYPE_STRUCT &&
+           outer->kind == CC_IR_TYPE_STRUCT);
+    assert(outer->members[0] == child->id);
+    assert(a->id != b->id && a->members[0] == b->members[0]);
+    fixture_destroy(&f);
+}
+
 static void test_explicit_unsupported(void)
 {
     Fixture f;
@@ -580,7 +710,7 @@ static void test_explicit_unsupported(void)
     assert(!cc_ir_lower(file, program, &f.arena, &f.module, &error));
     assert(error.message != NULL);
     assert(strcmp(error.message,
-           "IR backend currently supports only i32, usize, bool, void, tuples, optionals and fixed arrays") == 0);
+           "IR backend currently supports only i32, usize, bool, void, tuples, optionals, fixed arrays and structs") == 0);
     assert(error.span.file_id == f.file_id);
     fixture_destroy(&f);
 }
@@ -609,6 +739,8 @@ int main(void)
     test_for_range_cfg_and_bounds_once();
     test_bitwise_wrapping_and_compound_ir();
     test_array_ir_and_verifier();
+    test_struct_ir_and_verifier();
+    test_nominal_and_forward_struct_types();
     test_explicit_unsupported();
     test_bad_inputs();
     puts("IR: all tests passed");

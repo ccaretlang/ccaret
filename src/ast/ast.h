@@ -19,6 +19,9 @@ typedef struct CcWhile CcWhile;
 typedef struct CcLoop CcLoop;
 typedef struct CcFor CcFor;
 typedef struct CcFunctionDeclaration CcFunctionDeclaration;
+typedef struct CcStructDeclaration CcStructDeclaration;
+typedef struct CcStructField CcStructField;
+typedef struct CcStructFieldValue CcStructFieldValue;
 
 typedef enum {
     CC_AST_TYPE_NAMED,
@@ -42,6 +45,7 @@ typedef enum {
     CC_AST_EXPRESSION_PARENTHESIZED,
     CC_AST_EXPRESSION_TUPLE,
     CC_AST_EXPRESSION_ARRAY,
+    CC_AST_EXPRESSION_STRUCT,
     CC_AST_EXPRESSION_UNARY,
     CC_AST_EXPRESSION_BINARY,
     CC_AST_EXPRESSION_CALL,
@@ -157,6 +161,25 @@ struct CcTupleExpressionElement {
     CcTupleExpressionElement *next;
 };
 
+struct CcStructFieldValue {
+    CcSourceSpan name;
+    CcExpression *value;
+    CcStructFieldValue *next;
+};
+
+struct CcStructField {
+    CcSourceSpan name;
+    CcType *type;
+    CcStructField *next;
+};
+
+struct CcStructDeclaration {
+    CcSourceSpan span;
+    CcSourceSpan name;
+    bool is_public;
+    CcStructField *fields;
+};
+
 struct CcTuplePatternElement {
     CcPattern *pattern;
     CcTuplePatternElement *next;
@@ -188,6 +211,10 @@ struct CcExpression {
         CcExpression *parenthesized_inner;
         CcTupleExpressionElement *tuple_elements;
         CcTupleExpressionElement *array_elements;
+        struct {
+            CcSourceSpan name;
+            CcStructFieldValue *fields;
+        } struct_literal;
         struct {
             CcExpression *operand;
             CcUnaryOperator operator;
@@ -282,6 +309,9 @@ struct CcFunctionDeclaration {
     CcType *return_type;
     CcBlock *body;
     CcFunctionDeclaration *next;
+    /* A non-NULL struct_decl marks a top-level struct rather than a
+     * function. The existing parser declaration-chain API stays intact. */
+    CcStructDeclaration *struct_decl;
 };
 
 #endif

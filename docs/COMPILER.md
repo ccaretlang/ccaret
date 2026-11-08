@@ -8,8 +8,8 @@ and a C17 backend. The `ccaret tokens`, `check`, `emit-ir`, `emit-c`
 and `build` commands work for their documented subset. Source programs
 using `i32`, `bool`, `void`, nested tuple values and optional
 `?T` construction/propagation, `i32` bitwise and wrapping arithmetic,
-checked compound updates, integer `for` ranges and fixed arrays `[N]T`
-with checked indexing
+checked compound updates, integer `for` ranges, fixed arrays `[N]T`
+with checked indexing and nominal struct values
 can become GCC-compiled executables. The frontend supports additional
 syntax and types that are **not yet lowerable**, including optional
 unwrapping/pattern matching. See
