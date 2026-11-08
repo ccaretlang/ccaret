@@ -104,6 +104,7 @@ typedef enum {
 struct CcType {
     CcTypeKind kind;
     CcSourceSpan span;
+    bool pointer_pointee_const;
     union {
         CcType *optional_inner;
         CcType *pointer_inner;

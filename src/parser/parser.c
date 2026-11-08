@@ -641,6 +641,9 @@ static CcType *parse_type(CcParser *parser)
 
         advance(parser);
 
+        bool pointee_const = prefix.kind == CC_TOKEN_STAR &&
+            accept(parser, CC_TOKEN_KW_CONST, NULL);
+
         CcType *inner = parse_type(parser);
 
         if (parser->failed || inner == NULL) return NULL;
@@ -655,6 +658,7 @@ static CcType *parse_type(CcParser *parser)
         type->span.file_id = prefix.span.file_id;
         type->span.start = prefix.span.start;
         type->span.end = inner->span.end;
+        type->pointer_pointee_const = pointee_const;
         if (prefix.kind == CC_TOKEN_QUESTION)
             type->optional_inner = inner;
         else
@@ -674,6 +678,7 @@ static CcType *parse_type(CcParser *parser)
 
     type->kind = CC_AST_TYPE_NAMED;
     type->span = name.span;
+    type->pointer_pointee_const = false;
     type->optional_inner = NULL;
 
     return type;

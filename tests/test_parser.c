@@ -287,6 +287,7 @@ static void test_pointer_types(void)
     assert(first != NULL);
     assert(first->span.start == 5 && first->span.end == 12);
     assert(first->type->kind == CC_AST_TYPE_POINTER);
+    assert(!first->type->pointer_pointee_const);
     assert(first->type->span.file_id == fixture.id);
     assert(first->type->span.start == 8 && first->type->span.end == 12);
     assert(first->type->pointer_inner != NULL);
@@ -301,6 +302,7 @@ static void test_pointer_types(void)
     assert(second->type->kind == CC_AST_TYPE_OPTIONAL);
     assert(second->type->span.start == 17 && second->type->span.end == 21);
     assert(second->type->optional_inner->kind == CC_AST_TYPE_POINTER);
+    assert(!second->type->optional_inner->pointer_pointee_const);
     assert(second->type->optional_inner->span.start == 18);
     assert(second->type->optional_inner->span.end == 21);
     assert(second->type->optional_inner->pointer_inner->kind ==
@@ -313,6 +315,7 @@ static void test_pointer_types(void)
 
     assert(return_type != NULL);
     assert(return_type->kind == CC_AST_TYPE_POINTER);
+    assert(!return_type->pointer_pointee_const);
     assert(return_type->span.start == 26 && return_type->span.end == 31);
     assert(return_type->pointer_inner->kind == CC_AST_TYPE_OPTIONAL);
     assert(return_type->pointer_inner->span.start == 27);
@@ -328,9 +331,11 @@ static void test_pointer_types(void)
     assert(statement->kind == CC_AST_STATEMENT_LET);
     assert(statement->let.type != NULL);
     assert(statement->let.type->kind == CC_AST_TYPE_POINTER);
+    assert(!statement->let.type->pointer_pointee_const);
     assert(statement->let.type->span.start == 41);
     assert(statement->let.type->span.end == 45);
     assert(statement->let.type->pointer_inner->kind == CC_AST_TYPE_POINTER);
+    assert(!statement->let.type->pointer_inner->pointer_pointee_const);
     assert(statement->let.type->pointer_inner->span.start == 42);
     assert(statement->let.type->pointer_inner->span.end == 45);
     assert(statement->let.type->pointer_inner->pointer_inner->kind ==
@@ -367,6 +372,103 @@ static void test_pointer_type_eof(void)
 
         fixture_destroy(&fixture);
     }
+}
+
+static void test_const_pointer_types(void)
+{
+    ParserFixture fixture;
+
+    fixture_init(&fixture,
+                 "fn f(p: *const u8, q: ?*const i32) -> *const ?i32 { let x: **const u8 = p; return q; }");
+
+    CcFunctionDeclaration *function = cc_parser_parse_program(&fixture.parser);
+
+    assert(function != NULL);
+    assert(!fixture.parser.failed);
+
+    CcParameter *first = function->parameters;
+
+    assert(first != NULL);
+    assert(first->span.start == 5 && first->span.end == 17);
+    assert(first->type->kind == CC_AST_TYPE_POINTER);
+    assert(first->type->pointer_pointee_const);
+    assert(first->type->span.file_id == fixture.id);
+    assert(first->type->span.start == 8 && first->type->span.end == 17);
+    assert(first->type->pointer_inner->kind == CC_AST_TYPE_NAMED);
+    assert(first->type->pointer_inner->span.start == 15);
+    assert(first->type->pointer_inner->span.end == 17);
+
+    CcParameter *second = first->next;
+
+    assert(second != NULL);
+    assert(second->span.start == 19 && second->span.end == 33);
+    assert(second->type->kind == CC_AST_TYPE_OPTIONAL);
+    assert(!second->type->pointer_pointee_const);
+    assert(second->type->span.start == 22 && second->type->span.end == 33);
+    assert(second->type->optional_inner->kind == CC_AST_TYPE_POINTER);
+    assert(second->type->optional_inner->pointer_pointee_const);
+    assert(second->type->optional_inner->span.start == 23);
+    assert(second->type->optional_inner->span.end == 33);
+    assert(second->type->optional_inner->pointer_inner->kind ==
+           CC_AST_TYPE_NAMED);
+    assert(second->type->optional_inner->pointer_inner->span.start == 30);
+    assert(second->type->optional_inner->pointer_inner->span.end == 33);
+    assert(second->next == NULL);
+
+    CcType *return_type = function->return_type;
+
+    assert(return_type != NULL);
+    assert(return_type->kind == CC_AST_TYPE_POINTER);
+    assert(return_type->pointer_pointee_const);
+    assert(return_type->span.start == 38 && return_type->span.end == 49);
+    assert(return_type->pointer_inner->kind == CC_AST_TYPE_OPTIONAL);
+    assert(return_type->pointer_inner->span.start == 45);
+    assert(return_type->pointer_inner->span.end == 49);
+    assert(return_type->pointer_inner->optional_inner->kind ==
+           CC_AST_TYPE_NAMED);
+    assert(return_type->pointer_inner->optional_inner->span.start == 46);
+    assert(return_type->pointer_inner->optional_inner->span.end == 49);
+
+    CcStatement *statement = function->body->first;
+
+    assert(statement != NULL);
+    assert(statement->kind == CC_AST_STATEMENT_LET);
+    assert(statement->let.type->kind == CC_AST_TYPE_POINTER);
+    assert(!statement->let.type->pointer_pointee_const);
+    assert(statement->let.type->span.start == 59);
+    assert(statement->let.type->span.end == 69);
+    assert(statement->let.type->pointer_inner->kind == CC_AST_TYPE_POINTER);
+    assert(statement->let.type->pointer_inner->pointer_pointee_const);
+    assert(statement->let.type->pointer_inner->span.start == 60);
+    assert(statement->let.type->pointer_inner->span.end == 69);
+    assert(statement->let.type->pointer_inner->pointer_inner->kind ==
+           CC_AST_TYPE_NAMED);
+    assert(statement->let.type->pointer_inner->pointer_inner->span.start == 67);
+    assert(statement->let.type->pointer_inner->pointer_inner->span.end == 69);
+    assert(statement->let.initializer->kind == CC_AST_EXPRESSION_IDENTIFIER);
+    assert(statement->next != NULL);
+    assert(statement->next->kind == CC_AST_STATEMENT_RETURN);
+    assert(statement->next->next == NULL);
+
+    fixture_destroy(&fixture);
+}
+
+static void test_const_pointer_type_eof(void)
+{
+    static const char *source = "fn f() -> ?*const";
+    ParserFixture fixture;
+
+    fixture_init(&fixture, source);
+
+    assert(cc_parser_parse_program(&fixture.parser) == NULL);
+    assert(fixture.parser.failed);
+    assert(fixture.parser.error != NULL);
+    assert(strcmp(fixture.parser.error, "expected a type") == 0);
+    assert(fixture.parser.error_span.file_id == fixture.id);
+    assert(fixture.parser.error_span.start == strlen(source));
+    assert(fixture.parser.error_span.end == strlen(source));
+
+    fixture_destroy(&fixture);
 }
 
 static void test_multiple_functions(void)
@@ -2154,6 +2256,12 @@ static void test_parse_errors(void)
         "fn f(x: ?*) {}",
         "fn f() -> * {}",
         "fn f() { let p: ** = none; }",
+        "fn f(x: const u8) {}",
+        "fn f(x: *const) {}",
+        "fn f(x: *const const u8) {}",
+        "fn f(x: ?const u8) {}",
+        "fn f() -> *const {}",
+        "fn f() { let x: *const = p; }",
         "let x = 1;",
         "fn main() { return 42 }",
         "fn main() { return; ",
@@ -2261,6 +2369,8 @@ int main(void)
     test_optional_type_eof();
     test_pointer_types();
     test_pointer_type_eof();
+    test_const_pointer_types();
+    test_const_pointer_type_eof();
     test_multiple_functions();
     test_public_function();
     test_public_function_eof();
