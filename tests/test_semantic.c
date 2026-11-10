@@ -179,6 +179,16 @@ static void test_valid_programs(void)
         "fn f(view: []i32) -> []i32 { return view; }",
         "fn f() { var empty: [0]bool = [];"
         " let v: []bool = slice(empty); let n = v.len; }",
+        "fn f() { var data = [0, 20, 22, 0];"
+        " let view: []i32 = data[1..3];"
+        " let narrow = view[0..2]; narrow[0] = 1; }",
+        "fn f() { let data = [0, 20, 22, 0];"
+        " let view: []const i32 = data[1..3];"
+        " let middle: []const i32 = view[0..1]; }",
+        "fn f() { var empty: [0]i32 = [];"
+        " let view: []i32 = empty[0..0]; }",
+        "fn f() { let a = [0, 20, 22, 0];"
+        " let v = slice(a)[1..3][0..1]; }",
         "struct Marker {}",
         "pub struct Vec { x: i32, y: i32, }"
         "fn f() -> Vec { return Vec { y: 22, x: 20 }; }",
@@ -297,6 +307,22 @@ static void test_invalid_programs(void)
         { "fn f() { var data = [true];"
           " let v = slice(data); v[0] += true; }",
           "compound assignment requires a numeric variable", "v[0]" },
+        { "fn f() { let a = [1, 2]; let v = a[0..=1]; }",
+          "slice subranges require exclusive .. bounds", "0..=1" },
+        { "fn f() { let v = [1, 2][0..1]; }",
+          "array subrange requires a named local array", "[1, 2]" },
+        { "fn f() { let a = [1, 2]; let v = a[true..1]; }",
+          "type mismatch", "true" },
+        { "fn f() { let a = [1, 2]; let v = a[0..false]; }",
+          "type mismatch", "false" },
+        { "fn f() { let a = [1, 2]; let v: []i32 = a[0..1]; }",
+          "type mismatch", "a[0..1]" },
+        { "fn f() { let a = [1, 2]; let v = a[0..1];"
+          " v[0] = 3; }",
+          "cannot write through const slice", "v[0]" },
+        { "fn f() { var a = [1, 2]; let v = a[0..1];"
+          " let wrong: i32 = v; }",
+          "type mismatch", "v" },
         { "fn f() { var n = 1; let p = &n; *p = 3; }",
           "raw pointer write requires unsafe block", "*p" },
         { "fn f() { var n = 1; let p = &n; let x = *p; }",

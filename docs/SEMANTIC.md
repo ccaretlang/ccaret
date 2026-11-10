@@ -48,6 +48,13 @@ are arena-allocated; it does not yet annotate the AST with persistent
   accepted. Type-check `.len`, checked indexing and indexed writes;
   const-element slices reject writes even when their binding is `var`,
   while an immutable `let` binding of `[]T` may modify its elements.
+- Accept exclusive `a[from..to]` subranges with two `i32` bounds
+  on a named fixed-array local or any slice-valued expression. An
+  array-local's `let`/`var` status determines element constness;
+  subranges from slices retain the source slice's element qualifier.
+  Reject inclusive subranges, nonlocal/temporary array origins and
+  incompatible bound types. Dynamic range validity is checked by
+  generated code, not proven statically.
 - Infer simple local types, using `i32` for an unconstrained integer
   literal. Check integer-literal range against the contextual integer type
   (including unary negation), with no implicit narrowing between concrete
@@ -77,11 +84,14 @@ are arena-allocated; it does not yet annotate the AST with persistent
 - Slices do not extend backing storage lifetime; copying, passing or
   returning a slice is not checked for use-after-scope. The checker
   enforces element constness and source array mutability, not aliasing.
+  Subranges do not gain new ownership, provenance or borrowing guarantees.
 - Assignment targets are mutable local variables, single-level indexed
   elements of mutable fixed-array locals, direct indices on named
   writable-element slice locals, named fields of mutable struct locals,
   or raw-pointer targets inside `unsafe`. Nested field/index writes,
-  tuple members and subrange slice writes remain unsupported.
+  tuple members and direct indexed assignment into temporary subrange
+  expressions (e.g. `a[1..3][0] = x`) remain unsupported. Bind the
+  subrange to a named slice local and update through that binding instead.
 - Float type signatures and operations on float *variables* are recognized;
   floating-point literal expressions still await parser support.
 - Integer literals are checked for representable values (including the

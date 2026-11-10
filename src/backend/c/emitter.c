@@ -132,6 +132,15 @@ static void emit_instruction(FILE *out, const CcIrInstruction *i)
     case CC_IR_SLICE_LEN:
         fprintf(out, "r%u.len", i->lhs);
         break;
+    case CC_IR_SUBSLICE:
+        fprintf(out,
+                "((void)ccrt_subrange_i32(r%u, r%u, r%u.len), "
+                "(cc_t_%u){ .data = r%u.data == NULL ? NULL : "
+                "r%u.data + (size_t)r%u, "
+                ".len = (size_t)((int64_t)r%u - (int64_t)r%u) })",
+                i->rhs, i->slot, i->lhs, i->type,
+                i->lhs, i->lhs, i->rhs, i->slot, i->rhs);
+        break;
     case CC_IR_NEG: fprintf(out, "ccrt_neg_i32(r%u)", i->lhs); break;
     case CC_IR_NOT: fprintf(out, "!r%u", i->lhs); break;
     case CC_IR_BIT_NOT:
@@ -403,6 +412,9 @@ bool cc_c_emit(FILE *out, const CcIrModule *module, CcIrError *error)
           "size_t ccrt_index_i32(int32_t index, size_t length) {\n"
           "  if (index < 0 || (size_t)index >= length) abort();\n"
           "  return (size_t)index;\n"
+          "}\n"
+          "void ccrt_subrange_i32(int32_t begin, int32_t end, size_t length) {\n"
+          "  if (begin < 0 || end < begin || (size_t)end > length) abort();\n"
           "}\n\n", out);
 
     emit_type_definitions(out, module);

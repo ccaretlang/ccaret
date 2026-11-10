@@ -1,0 +1,5 @@
+fn main() -> i32 {
+    var data: [0]i32 = [];
+    let view = data[0..1];
+    return 0;
+}

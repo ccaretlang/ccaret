@@ -59,6 +59,7 @@ static const char *op_name(CcIrOpcode op)
     case CC_IR_GET_SLICE: return "slice.get";
     case CC_IR_STORE_SLICE: return "slice.store";
     case CC_IR_SLICE_LEN: return "slice.len";
+    case CC_IR_SUBSLICE: return "slice.subrange";
     }
     return "invalid";
 }
@@ -158,6 +159,10 @@ bool cc_ir_print(FILE *out, const CcIrModule *module)
                     break;
                 case CC_IR_SLICE_LEN:
                     fprintf(out, " %%%u", i->lhs);
+                    break;
+                case CC_IR_SUBSLICE:
+                    fprintf(out, " %%%u[%%%u..%%%u]",
+                            i->lhs, i->rhs, i->slot);
                     break;
                 case CC_IR_NEG:
                 case CC_IR_NOT:

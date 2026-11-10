@@ -91,8 +91,29 @@ parentheses are allowed, but `slice([1, 2])` is rejected. `var` arrays
 yield mutable-element views and `let` arrays yield const-element views.
 Use `view[i]` for reads and direct `view[i] = x` / numeric compound
 assignments for writes through mutable views. Indexing is bounds checked,
-and `view.len` evaluates to a `usize`. This milestone does not parse
-`view[from..to]` or implement implicit array-to-slice coercions.
+and `view.len` evaluates to a `usize`.
+
+`array_name[from..to]` and `view[from..to]` construct further
+non-owning views, where both bounds are `i32` expressions evaluated
+left-to-right exactly once. The end is exclusive; `0 <= from <= to <= len`
+is checked at runtime, including for empty ranges. Negative, reversed
+or out-of-bounds ranges abort before pointer arithmetic. A fixed-array
+origin must be a **named local** (`[1, 2][0..1]` is rejected);
+slice-valued expressions, including function-call results, may be
+subranged. For example:
+
+```caret
+var data = [0, 20, 22, 0];
+let view: []i32 = data[1..3];
+let smaller = view[0..2];
+smaller[0] = 20;
+```
+
+Subranges retain element constness, and no array copy is made.
+`a[0..=1]` is not supported; only `..` works for subranges (even
+though `..=` is supported by integer `for` loops).
+Open-ended bounds (`a[..to]` / `a[from..]`), implicit array-to-slice
+coercion, and lifetime/alias checks are not implemented.
 
 ## Nominal structures
 

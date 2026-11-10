@@ -64,8 +64,11 @@
 - [x] Non-owning slice subset: `[]T` / `[]const T` via explicit
       `slice(local_array)`, checked indexing/writes and `.len`,
       independent verified IR and executable C17.
-- [ ] Slice subranges, pointer-origin views, lifetime/alias checks,
-      layout intrinsics and full target ABI declarations.
+- [x] Checked exclusive slice subranges `a[from..to]` for named fixed
+      arrays and existing slices, with element constness preserved,
+      independently verified IR and C17 runtime bounds checks.
+- [ ] Pointer-origin views, lifetime/alias checks, slice reborrowing
+      rules, layout intrinsics and full target ABI declarations.
 
 ## Phase 5: Enums, optionals and cleanup
 

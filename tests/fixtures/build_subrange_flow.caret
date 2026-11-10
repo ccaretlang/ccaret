@@ -1,0 +1,11 @@
+fn begin(flag: bool) -> i32 {
+    if flag { return 0; } else { return 1; }
+}
+fn end(flag: bool) -> i32 {
+    if flag { return 3; } else { return 2; }
+}
+fn main() -> i32 {
+    var data = [0, 20, 22, 0];
+    let view = data[begin(false && true)..end(true || false)];
+    return view[0] + view[1];
+}

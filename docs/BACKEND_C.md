@@ -81,6 +81,12 @@ entry point is `fn main() -> i32`.
   updates (even when the slice's binding is `let`). Slices can be
   passed, returned and included in supported aggregates. Their lifetime
   is not checked or extended.
+- Checked exclusive subranges `array_local[from..to]` and
+  `slice_expression[from..to]`, with `i32` bounds, source-order
+  single evaluation, retained element constness and aliasing. Negative
+  bounds, `end < begin` and `end > source.len` abort. Empty views and
+  nested subranges are supported. Array temporaries and inclusive
+  subranges are rejected.
 - Arguments are lowered left-to-right before the C function call, so the
   generated C's unspecified argument evaluation order has no effect.
   Tuple elements are similarly sequenced before construction.
@@ -101,7 +107,11 @@ Slices use internal `typedef struct { T *data; size_t len; }` layouts;
 const-element slices use `const T *data`. Zero-length slices contain
 `NULL` and length zero; any indexing traps before dereference. Positive
 length slices point into a fixed-array local. Slice index checks call
-`ccrt_index_i32` before C pointer indexing. This does not validate
+`ccrt_index_i32` before C pointer indexing. `ccrt_subrange_i32`
+validates bounds **before** pointer addition and length computation.
+An empty `NULL`-backed slice remains `NULL` when subranged, avoiding
+undefined null-pointer arithmetic; a valid zero-length range at the end
+of a nonempty array may hold a one-past pointer. This does not validate
 backing-storage lifetime or support a foreign ABI.
 The generated code does not perform lifetime or null checks before
 dereferencing. This is an **internal implementation layout**, not
@@ -122,7 +132,7 @@ wrapping/cast decisions remain open.
 
 ## Not yet supported by the backend
 
-Slice subranges, pointer-origin slice creation, pointer arithmetic, casts,
+Pointer-origin slice creation, pointer arithmetic, casts,
 volatile pointers, floating-point values, enums, unions, type aliases,
 signed shifts (`<<`, `>>`, `<<=`, `>>=`) and multi-width integer
 arithmetic have not yet been lowered. Signed right-shift semantics
@@ -148,6 +158,13 @@ a stable ABI and freestanding targets remain future work. It should not
 be used for production or safety-critical compilation.
 
 ## Validation
+
+`make check` runs the positive, negative, trap and module-linking
+subrange fixtures under the normal compiler, including strict
+`-O2 -Werror` builds of generated C. For an optional ASan/UBSan pass,
+run `sh tests/test_subrange_sanitizers.sh` after `make check`:
+it instruments parser/semantic/IR tests, the compiler and all
+subrange fixture executables, then checks an optimized compiler build.
 
 `make check` exercises the existing frontend suites, a new IR/verifier
 suite, the CLI, and real GCC-compiled executables: literals, function

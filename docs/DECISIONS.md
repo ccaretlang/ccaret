@@ -29,7 +29,7 @@
 | P-008 | Typed non-SSA IR with explicit blocks. | Aggregate merges and ABI lowering. |
 | P-009 | UTF-8 source with ASCII identifiers for now. | Future Unicode policy. |
 | P-010 | Generated C17 plus optional target-specific extensions. | Target compatibility declarations. |
-| P-011 | An explicit `slice(local_array)` built-in creates non-owning `[]T` / `[]const T` views in the bootstrap C17 pipeline. | Subrange syntax, pointer-origin slices, lifetime/alias rules and final intrinsic naming remain open; no implicit array-to-slice coercion. |
+| P-011 | An explicit `slice(local_array)` built-in creates non-owning `[]T` / `[]const T` views in the bootstrap C17 pipeline. | Checked, exclusive `a[from..to]` subranges now implemented for named local arrays and slice expressions; pointer-origin slices, lifetime/alias rules and final intrinsic naming remain open; no implicit array-to-slice coercion. |
 
 ## Open questions before the lexer and parser freeze
 

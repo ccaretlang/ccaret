@@ -2933,6 +2933,48 @@ static void test_unsafe_pointer_statements(void)
     fixture_destroy(&f);
 }
 
+static void test_subrange_ast(void)
+{
+    ParserFixture f;
+    fixture_init(&f,
+        "fn main() -> i32 {"
+        " var data = [0, 20, 22];"
+        " let v = data[(1..3)][0..2];"
+        " return v[0]; }");
+    CcFunctionDeclaration *fn = cc_parser_parse_program(&f.parser);
+    assert(fn != NULL && !f.parser.failed);
+    CcStatement *decl = fn->body->first->next;
+    assert(decl != NULL && decl->kind == CC_AST_STATEMENT_LET);
+    CcExpression *outer = decl->let.initializer;
+    assert(outer->kind == CC_AST_EXPRESSION_INDEX);
+    assert(outer->index.index->kind == CC_AST_EXPRESSION_BINARY);
+    assert(outer->index.index->binary.operator ==
+           CC_AST_BINARY_OPERATOR_RANGE);
+    CcExpression *inner = outer->index.operand;
+    assert(inner->kind == CC_AST_EXPRESSION_INDEX);
+    assert(inner->index.operand->kind == CC_AST_EXPRESSION_IDENTIFIER);
+    assert(inner->index.index->kind == CC_AST_EXPRESSION_PARENTHESIZED);
+    assert(inner->index.index->parenthesized_inner->kind ==
+           CC_AST_EXPRESSION_BINARY);
+    assert(inner->index.index->parenthesized_inner->binary.operator ==
+           CC_AST_BINARY_OPERATOR_RANGE);
+    assert(outer->span.start == inner->span.start &&
+           outer->span.end > inner->span.end);
+    fixture_destroy(&f);
+
+    fixture_init(&f, "fn f() { let a = [1, 2]; let v = a[0..=1]; }");
+    fn = cc_parser_parse_program(&f.parser);
+    assert(fn != NULL && !f.parser.failed);
+    assert(fn->body->first->next->let.initializer->index.index->binary.operator
+           == CC_AST_BINARY_OPERATOR_RANGE_INCLUSIVE);
+    fixture_destroy(&f);
+
+    fixture_init(&f, "fn f() { let a = [1, 2]; let v = a[0..2; }");
+    cc_parser_parse_program(&f.parser);
+    assert(f.parser.failed && f.parser.error != NULL);
+    fixture_destroy(&f);
+}
+
 static void test_slice_intrinsic_ast(void)
 {
     ParserFixture f;
@@ -3046,6 +3088,7 @@ int main(void)
     test_module_headers_and_qualified_names();
     test_unsafe_pointer_statements();
     test_slice_intrinsic_ast();
+    test_subrange_ast();
     test_parse_errors();
     test_empty_source_without_functions();
 

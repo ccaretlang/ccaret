@@ -52,7 +52,7 @@ implemented yet.
 | Logic | `not`, `bit.not`, `bit.and`, `bit.or`, `bit.xor`, equality and ordered comparisons |
 | Locals | `load`, `store` with typed slots |
 | Raw pointers | `addr.slot` (local address), `ptr.load` and `ptr.store` (dereference/write) |
-| Slices | `slice.from.slot`, `slice.get`, `slice.store`, `slice.len` |
+| Slices | `slice.from.slot`, `slice.subrange`, `slice.get`, `slice.store`, `slice.len` |
 | Aggregates | `tuple`/`tuple.get`, `array` (construct), `array.get` (checked index), `array.store` (checked mutable local write); `struct`/`struct.get`/`struct.set` (named field values) |
 | Tagged values | `some`, `none` (construct optional values) |
 | Calls | Direct `call`, including aggregate parameters and results |
@@ -113,8 +113,17 @@ checks type dependencies, canonical slice types, source-array element and
 length agreement, operand/register types, and forbids writes through
 `[]const T`. Compound writes stage the slice, index and old value in
 slots before evaluating a potentially branching RHS, preserving source
-evaluation order. The verifier does not prove backing-array lifetime,
-exclusive access, aliasing or that a slice value points to valid memory.
+evaluation order. `slice.subrange` takes a slice register and two
+`i32` endpoint registers, returning the **same slice type** (including
+element constness). Subranging a named array first creates a verified
+`slice.from.slot`; subranging an existing view uses its current length.
+The source and start bounds are staged in slots before evaluating the end,
+so short-circuiting/calls cannot invalidate cross-block register uses.
+The verifier rejects non-slice sources, mismatched result types,
+undefined/cross-block bounds and non-`i32` bounds. Runtime bounds
+checks enforce `0 <= start <= end <= source.len` in the backend.
+The verifier does not prove backing-array lifetime, exclusive access,
+aliasing or that a slice value points to valid memory.
 Optional unwrapping, `match`, `try`, `defer`, and their control-flow
 lowerings remain future work. Boolean short-circuiting appears explicitly
 in the CFG. Traps must not become C undefined behavior.

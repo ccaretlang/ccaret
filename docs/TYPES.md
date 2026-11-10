@@ -62,8 +62,17 @@ dangling slice escapes. `[]const T` rejects indexed writes; by contrast
 `let view: []T` may write its elements. All implemented slice indices
 are `i32` and checked at runtime; `view.len` has type `usize`.
 Slice-indexed compound writes currently support `i32` arithmetic.
-Slicing subranges, explicit lifetime annotations and ownership transfer
-remain future work.
+Exclusive subranges `array_local[from..to]` and
+`view[from..to]` yield another non-owning slice of the same element
+type and constness: `[]T` stays writable and `[]const T` stays
+read-only. Both bounds must be `i32` and obey
+`0 <= from <= to <= source.len` at runtime; otherwise execution
+aborts. Source, start and end evaluate in that order exactly once.
+Empty subranges are valid. A fixed array must be a named local;
+slice-valued expressions can be subranged and nested. Inclusive
+`..=` and omitted subrange bounds are not supported. Explicit lifetime
+annotations, reborrowing guarantees and ownership transfer remain
+future work.
 
 The bootstrap C17 pipeline implements `*T`, `*const T` and `?*T`
 as raw pointer values. Taking the address of a mutable named local (`&var`)

@@ -924,6 +924,86 @@ static void test_slice_ir_and_verifier(void)
     fixture_destroy(&f);
 }
 
+static void test_slice_subrange_ir_and_verifier(void)
+{
+    Fixture f;
+    fixture_init(&f,
+        "fn main() -> i32 {"
+        " var data = [0, 20, 22, 0];"
+        " let const_data = [1, 2, 3];"
+        " let cold = const_data[0..1];"
+        " let view: []i32 = data[1..3];"
+        " let inner = view[0..2];"
+        " inner[0] += cold[0];"
+        " return inner[0] + inner[1]; }");
+    lower(&f);
+    CcIrFunction *fn = f.module->functions;
+    CcIrInstruction *sub = find_instruction(fn, CC_IR_SUBSLICE);
+    CcIrInstruction *array = find_instruction(fn, CC_IR_MAKE_ARRAY);
+    CcIrInstruction *make = find_instruction(fn, CC_IR_MAKE_SLICE);
+    assert(sub != NULL && make != NULL && array != NULL);
+    assert(find_instruction(fn, CC_IR_GET_SLICE) != NULL);
+    assert(find_instruction(fn, CC_IR_STORE_SLICE) != NULL);
+    const CcIrTypeInfo *type = cc_ir_type_info(f.module, sub->type);
+    assert(type != NULL && type->kind == CC_IR_TYPE_SLICE &&
+           type->slice_const);
+    const CcIrTypeInfo *make_type = cc_ir_type_info(f.module, make->type);
+    assert(make_type != NULL && make_type->kind == CC_IR_TYPE_SLICE);
+
+    FILE *out = tmpfile();
+    assert(out != NULL && cc_ir_print(out, f.module));
+    rewind(out);
+    char printed[24000];
+    size_t n = fread(printed, 1, sizeof(printed) - 1, out);
+    printed[n] = '\0';
+    assert(strstr(printed, "slice.subrange") != NULL);
+    assert(strstr(printed, "slice.from.slot") != NULL);
+    assert(fclose(out) == 0);
+
+    uint32_t saved_lhs = sub->lhs;
+    sub->lhs = CC_IR_NONE;
+    expect_invalid(f.module, "IR verifier: invalid slice subrange");
+    sub->lhs = array->result;
+    expect_invalid(f.module, "IR verifier: invalid slice subrange");
+    sub->lhs = saved_lhs;
+
+    CcIrType saved_type = sub->type;
+    sub->type = CC_IR_I32;
+    expect_invalid(f.module, "IR verifier: invalid slice subrange");
+    sub->type = saved_type;
+
+    uint32_t saved_begin = sub->rhs;
+    sub->rhs = CC_IR_NONE;
+    expect_invalid(f.module, "IR verifier: invalid slice subrange");
+    sub->rhs = saved_begin;
+    uint32_t saved_end = sub->slot;
+    sub->slot = CC_IR_NONE;
+    expect_invalid(f.module, "IR verifier: invalid slice subrange");
+    sub->slot = saved_end;
+
+    CcIrInstruction *inner = NULL;
+    for (CcIrBlock *block = fn->blocks; block != NULL; block = block->next)
+        for (CcIrInstruction *i = block->first; i != NULL; i = i->next)
+            if (i->op == CC_IR_SUBSLICE && i != sub) inner = i;
+    assert(inner != NULL);
+    assert(inner->type != sub->type);
+    sub->type = inner->type;
+    expect_invalid(f.module, "IR verifier: invalid slice subrange");
+    sub->type = saved_type;
+
+    CcIrError error;
+    assert(cc_ir_verify(f.module, &error));
+    out = tmpfile();
+    assert(out != NULL && cc_c_emit(out, f.module, &error));
+    rewind(out);
+    n = fread(printed, 1, sizeof(printed) - 1, out);
+    printed[n] = '\0';
+    assert(strstr(printed, "ccrt_subrange_i32") != NULL);
+    assert(strstr(printed, ".data == NULL ? NULL") != NULL);
+    assert(fclose(out) == 0);
+    fixture_destroy(&f);
+}
+
 static void test_explicit_unsupported(void)
 {
     Fixture f;
@@ -971,6 +1051,7 @@ int main(void)
     test_nominal_and_forward_struct_types();
     test_pointer_ir_and_verifier();
     test_slice_ir_and_verifier();
+    test_slice_subrange_ir_and_verifier();
     test_explicit_unsupported();
     test_bad_inputs();
     puts("IR: all tests passed");

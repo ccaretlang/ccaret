@@ -67,12 +67,18 @@ view because the binding's mutability is distinct from element access.
 Reads and writes use checked `i32` indices: negative or out-of-range
 indices abort, including for zero-length slices. `view.len` is a
 `usize` value; slice values can be passed, returned and nested in
-other supported aggregates.
+other supported aggregates. `local_array[from..to]` (a named fixed-array
+local) and `view[from..to]` (also on temporary slice expressions) produce
+non-owning subviews. They check `0 <= from <= to <= len` at runtime
+before pointer arithmetic, retaining element constness and allowing
+valid empty ranges. The two `i32` endpoints are evaluated in source
+order once. The exclusive upper bound `..` is required; open-ended
+and inclusive ranges are not implemented here.
 
 ```caret
 fn main() -> i32 {
     var values = [20, 0];
-    let view: []i32 = slice(values);
+    let view: []i32 = values[0..2];
     view[1] += 22;
     return values[0] + values[1];
 }
@@ -83,9 +89,10 @@ returning a slice does not extend its array's lifetime. A slice returned
 from a function owning its backing local array can dangle, and the
 compiler currently has no escape/lifetime analysis or borrow checking.
 The caller must keep backing storage alive and avoid invalidated aliases.
-The eventual subrange syntax `a[from..to]`, mutable reborrowing rules,
-pointer-origin views, unchecked slice operations and any slice ABI are
-not implemented.
+Subranges do not add a borrow checker, change backing-array lifetimes
+or prevent aliasing through the original array and other views.
+Mutable reborrowing rules, pointer-origin views, unchecked slice
+operations and any slice ABI are not implemented.
 
 ## `defer` and `errdefer`
 

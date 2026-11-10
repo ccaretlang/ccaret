@@ -1125,6 +1125,48 @@ static SemType *check_expr(SemContext *ctx, const CcExpression *expr,
             return NULL;
         }
 
+        const CcExpression *range = expr->index.index;
+        while (range->kind == CC_AST_EXPRESSION_PARENTHESIZED)
+            range = range->parenthesized_inner;
+        if (range->kind == CC_AST_EXPRESSION_BINARY &&
+            (range->binary.operator == CC_AST_BINARY_OPERATOR_RANGE ||
+             range->binary.operator == CC_AST_BINARY_OPERATOR_RANGE_INCLUSIVE)) {
+            if (range->binary.operator ==
+                CC_AST_BINARY_OPERATOR_RANGE_INCLUSIVE) {
+                fail(ctx, range->span,
+                     "slice subranges require exclusive .. bounds");
+                return NULL;
+            }
+            bool element_const = collection->is_const;
+            if (collection->kind == SEM_ARRAY) {
+                const CcExpression *source = expr->index.operand;
+                while (source->kind == CC_AST_EXPRESSION_PARENTHESIZED)
+                    source = source->parenthesized_inner;
+                if (source->kind != CC_AST_EXPRESSION_IDENTIFIER) {
+                    fail(ctx, source->span,
+                         "array subrange requires a named local array");
+                    return NULL;
+                }
+                SemVariable *local = find_variable(ctx, source->identifier_name);
+                if (local == NULL || local->type->kind != SEM_ARRAY) {
+                    fail(ctx, source->span,
+                         "array subrange requires a named local array");
+                    return NULL;
+                }
+                element_const = !local->mutable;
+            }
+            SemType *index_type = builtin(ctx, PRIM_I32, range->span);
+            if (index_type == NULL ||
+                check_expr(ctx, range->binary.left, index_type) == NULL ||
+                check_expr(ctx, range->binary.right, index_type) == NULL)
+                return NULL;
+            SemType *view = new_type(ctx, SEM_SLICE, expr->span);
+            if (view == NULL) return NULL;
+            view->inner = collection->inner;
+            view->is_const = element_const;
+            return coerce(ctx, view, expected, expr->span);
+        }
+
         SemType *index = check_expr(ctx, expr->index.index, NULL);
 
         if (index == NULL) return NULL;

@@ -1,0 +1,11 @@
+fn main() -> i32 {
+    var empty: [0]i32 = [];
+    let view = empty[0..0];
+    let data = [20, 22];
+    let tail = data[2..2];
+    let mid = data[1..1];
+    if view.len == 0 && tail.len == 0 && mid.len == 0 {
+        return data[0] + data[1];
+    }
+    return 0;
+}

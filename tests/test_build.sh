@@ -88,6 +88,21 @@ for case in slice_basic slice_const slice_call slice_bool slice_struct \
     build_run "$case" 42
 done
 
+for case in subrange_basic subrange_write subrange_nested subrange_slice \
+    subrange_empty subrange_flow subrange_temporary_slice \
+    subrange_struct subrange_tuple subrange_bool subrange_order; do
+    build_run "$case" 42
+done
+
+"$binary" emit-ir "$root/tests/fixtures/build_subrange_nested.caret" \
+    -o "$out/subrange_nested.ir"
+grep -q 'slice.from.slot' "$out/subrange_nested.ir"
+grep -q 'slice.subrange' "$out/subrange_nested.ir"
+grep -q 'slice.store' "$out/subrange_nested.ir"
+grep -q 'ccrt_subrange_i32' "$out/compiled_subrange_nested.c"
+grep -q 'end < begin' "$out/compiled_subrange_nested.c"
+grep -q 'data == NULL ? NULL' "$out/compiled_subrange_empty.c"
+
 "$binary" emit-ir "$root/tests/fixtures/build_slice_basic.caret" \
     -o "$out/slice_basic.ir"
 grep -q '= \[\]i32' "$out/slice_basic.ir"
@@ -200,7 +215,10 @@ for case in hello call factorial while shortcircuit boolean \
     ptr_basic ptr_const ptr_call ptr_bool ptr_nested \
     ptr_struct ptr_array ptr_optional ptr_flow \
     slice_basic slice_const slice_call slice_bool slice_struct \
-    slice_empty slice_flow slice_optional slice_array slice_nested; do
+    slice_empty slice_flow slice_optional slice_array slice_nested \
+    subrange_basic subrange_write subrange_nested subrange_slice \
+    subrange_empty subrange_flow subrange_temporary_slice \
+    subrange_struct subrange_tuple subrange_bool subrange_order; do
     gcc -std=c17 -O2 -Wall -Wextra -Wpedantic -Werror \
         "$out/compiled_$case.c" -o "$out/optimized_$case"
     case "$case" in
@@ -237,7 +255,9 @@ for case in overflow divzero div_overflow neg_overflow \
     array_negative_index array_oob_index array_empty_index \
     array_oob_write array_empty_write struct_compound_overflow \
     ptr_overflow slice_oob slice_negative slice_empty_oob \
-    slice_oob_write slice_overflow; do
+    slice_oob_write slice_overflow \
+    subrange_negative subrange_oob subrange_reversed \
+    subrange_empty_oob subrange_nested_oob; do
     "$binary" build "$root/tests/fixtures/build_$case.caret" \
         -o "$out/trap_$case"
     set +e
@@ -254,7 +274,9 @@ for case in overflow compound_overflow compound_divzero \
     array_negative_index array_oob_index array_empty_index \
     array_oob_write array_empty_write struct_compound_overflow \
     ptr_overflow slice_oob slice_negative slice_empty_oob \
-    slice_oob_write slice_overflow; do
+    slice_oob_write slice_overflow \
+    subrange_negative subrange_oob subrange_reversed \
+    subrange_empty_oob subrange_nested_oob; do
     gcc -std=c17 -O2 -Wall -Wextra -Wpedantic -Werror \
         "$out/trap_$case.c" -o "$out/optimized_trap_$case"
     set +e
@@ -333,6 +355,22 @@ grep -q 'error: semantic: slice requires a fixed array' \
     "$out/slice_nonarray_invalid.err"
 grep -q 'error: semantic: slice requires a named local array' \
     "$out/slice_temporary_invalid.err"
+
+for case in subrange_inclusive_invalid subrange_temporary_array_invalid \
+    subrange_bool_invalid subrange_const_write_invalid; do
+    if "$binary" build "$root/tests/fixtures/build_$case.caret" \
+        -o "$out/invalid_$case" > /dev/null 2> "$out/$case.err"; then
+        echo "build: invalid subrange case $case must fail" >&2
+        exit 1
+    fi
+done
+grep -q 'error: semantic: slice subranges require exclusive .. bounds' \
+    "$out/subrange_inclusive_invalid.err"
+grep -q 'error: semantic: array subrange requires a named local array' \
+    "$out/subrange_temporary_array_invalid.err"
+grep -q 'error: semantic: type mismatch' "$out/subrange_bool_invalid.err"
+grep -q 'error: semantic: cannot write through const slice' \
+    "$out/subrange_const_write_invalid.err"
 
 if "$binary" build "$root/tests/fixtures/build_invalid_main.caret" \
     -o "$out/invalid_main" > /dev/null 2> "$out/invalid_main.err"; then

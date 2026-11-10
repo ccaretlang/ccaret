@@ -1,0 +1,6 @@
+fn main() -> i32 {
+    let data = [20, 22];
+    let view = data[0..1];
+    view[0] = 42;
+    return 0;
+}

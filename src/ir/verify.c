@@ -184,6 +184,17 @@ static bool validate_instruction(const CcIrModule *module,
             return fail(error, i->span, "IR verifier: invalid slice length");
         break;
     }
+    case CC_IR_SUBSLICE: {
+        if (i->lhs >= register_count || !defined[i->lhs])
+            return fail(error, i->span, "IR verifier: invalid slice subrange");
+        CcIrType source = types[i->lhs];
+        const CcIrTypeInfo *view = cc_ir_type_info(module, source);
+        if (view == NULL || view->kind != CC_IR_TYPE_SLICE ||
+            i->type != source || !USE(i->lhs, source) ||
+            !USE(i->rhs, CC_IR_I32) || !USE(i->slot, CC_IR_I32))
+            return fail(error, i->span, "IR verifier: invalid slice subrange");
+        break;
+    }
     case CC_IR_NEG:
     case CC_IR_NOT:
     case CC_IR_BIT_NOT: {

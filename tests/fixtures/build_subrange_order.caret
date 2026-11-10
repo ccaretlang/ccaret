@@ -1,0 +1,22 @@
+fn source(values: []i32, counter: *i32) -> []i32 {
+    unsafe { *counter = *counter * 10 + 1; }
+    return values;
+}
+
+fn begin(counter: *i32) -> i32 {
+    unsafe { *counter = *counter * 10 + 2; }
+    return 1;
+}
+
+fn end(counter: *i32) -> i32 {
+    unsafe { *counter = *counter * 10 + 3; }
+    return 3;
+}
+
+fn main() -> i32 {
+    var counter = 0;
+    var data = [0, 20, 22, 0];
+    let view = source(slice(data), &counter)[begin(&counter)..end(&counter)];
+    if counter == 123 { return view[0] + view[1]; }
+    return 0;
+}

@@ -95,6 +95,40 @@ gcc -std=c17 -O2 -Wall -Wextra -Wpedantic -Werror \
 run_exit 42 "$out/slice_case/optimized"
 grep -q 'slice.store' "$out/slice_case.ir"
 
+# Subranges from a mutable local and inside imported functions must retain
+# their backing array alias and length checks across three linked modules.
+mkdir -p "$out/subrange_case/app" "$out/subrange_case/lib"
+cat > "$out/subrange_case/app/main.caret" <<'EOF'
+module app.main;
+import lib.array as array;
+fn main() -> i32 {
+    var data = [0, 20, 0, 0];
+    array.update(data[1..3]);
+    return data[1] + data[2];
+}
+EOF
+cat > "$out/subrange_case/lib/array.caret" <<'EOF'
+module lib.array;
+import lib.math as math;
+pub fn update(view: []i32) {
+    let middle = view[1..2];
+    middle[0] += math.delta();
+}
+EOF
+cat > "$out/subrange_case/lib/math.caret" <<'EOF'
+module lib.math;
+pub fn delta() -> i32 { return 22; }
+EOF
+"$binary" check "$out/subrange_case/app/main.caret"
+"$binary" emit-ir "$out/subrange_case/app/main.caret" -o "$out/subrange_case.ir"
+"$binary" build "$out/subrange_case/app/main.caret" -o "$out/subrange_case/bin"
+run_exit 42 "$out/subrange_case/bin"
+gcc -std=c17 -O2 -Wall -Wextra -Wpedantic -Werror \
+    "$out/subrange_case/bin.c" -o "$out/subrange_case/optimized"
+run_exit 42 "$out/subrange_case/optimized"
+test "$(grep -c 'slice.subrange' "$out/subrange_case.ir")" -eq 2
+grep -q 'slice.store' "$out/subrange_case.ir"
+
 grep -q 'call @' "$out/main.ir"
 grep -q 'struct cc_m' "$out/main.ir"
 grep -q 'int main(void)' "$out/main.c"

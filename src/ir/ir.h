@@ -87,7 +87,8 @@ typedef enum {
     CC_IR_MAKE_SLICE,
     CC_IR_GET_SLICE,
     CC_IR_STORE_SLICE,
-    CC_IR_SLICE_LEN
+    CC_IR_SLICE_LEN,
+    CC_IR_SUBSLICE
 } CcIrOpcode;
 
 typedef enum {

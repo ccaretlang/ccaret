@@ -633,6 +633,75 @@ static Value lower_logic(Lower *ctx, const CcExpression *expr, bool and)
     return load(ctx, slot, expr->span);
 }
 
+static Value lower_subrange(Lower *ctx, const CcExpression *expr,
+                            const CcExpression *range, CcIrType expected)
+{
+    /* A fixed array must be a named local: taking the address of an
+     * evaluated array temporary would make the result immediately dangle. */
+    const CcExpression *source = expr->index.operand;
+    while (source->kind == CC_AST_EXPRESSION_PARENTHESIZED)
+        source = source->parenthesized_inner;
+    LowerVar *local = source->kind == CC_AST_EXPRESSION_IDENTIFIER
+        ? find_variable(ctx, source->identifier_name) : NULL;
+    const CcIrTypeInfo *array = local == NULL ? NULL :
+        cc_ir_type_info(ctx->module, slot_type(ctx, local->slot));
+    Value view;
+    if (array != NULL && array->kind == CC_IR_TYPE_ARRAY) {
+        CcIrType view_type = intern_type(ctx, CC_IR_TYPE_SLICE, array->inner,
+                                         local->mutable ? 0U : 1U, NULL,
+                                         expr->span);
+        if (ctx->failed) return no_value();
+        CcIrInstruction *make = NULL;
+        view = append(ctx, CC_IR_MAKE_SLICE, view_type, expr->span, &make);
+        if (make != NULL) {
+            make->slot = local->slot;
+            make->arg_count = array->count;
+        }
+    } else {
+        view = lower_expr(ctx, expr->index.operand, CC_IR_NONE);
+    }
+    if (ctx->failed) return no_value();
+    const CcIrTypeInfo *slice = cc_ir_type_info(ctx->module, view.type);
+    if (slice == NULL || slice->kind != CC_IR_TYPE_SLICE ||
+        (expected != CC_IR_NONE && expected != view.type)) {
+        error_at(ctx, expr->span,
+                 "IR lowering: subrange requires a matching slice");
+        return no_value();
+    }
+
+    uint32_t view_slot = make_slot(ctx, view.type, expr->span);
+    if (ctx->failed || !store(ctx, view_slot, view, expr->span))
+        return no_value();
+    Value begin = lower_expr(ctx, range->binary.left, CC_IR_I32);
+    if (ctx->failed || begin.type != CC_IR_I32) {
+        error_at(ctx, range->binary.left->span,
+                 "IR lowering: subrange start requires i32");
+        return no_value();
+    }
+    uint32_t begin_slot = make_slot(ctx, CC_IR_I32, expr->span);
+    if (ctx->failed || !store(ctx, begin_slot, begin, expr->span))
+        return no_value();
+    Value end = lower_expr(ctx, range->binary.right, CC_IR_I32);
+    if (ctx->failed || end.type != CC_IR_I32) {
+        error_at(ctx, range->binary.right->span,
+                 "IR lowering: subrange end requires i32");
+        return no_value();
+    }
+
+    view = load(ctx, view_slot, expr->span);
+    begin = load(ctx, begin_slot, expr->span);
+    if (ctx->failed) return no_value();
+    CcIrInstruction *instruction = NULL;
+    Value result = append(ctx, CC_IR_SUBSLICE, view.type,
+                          expr->span, &instruction);
+    if (instruction != NULL) {
+        instruction->lhs = view.reg;
+        instruction->rhs = begin.reg;
+        instruction->slot = end.reg;
+    }
+    return result;
+}
+
 static Value lower_expr(Lower *ctx, const CcExpression *expr,
                         CcIrType expected)
 {
@@ -870,6 +939,12 @@ static Value lower_expr(Lower *ctx, const CcExpression *expr,
         return element;
     }
     case CC_AST_EXPRESSION_INDEX: {
+        const CcExpression *range = expr->index.index;
+        while (range->kind == CC_AST_EXPRESSION_PARENTHESIZED)
+            range = range->parenthesized_inner;
+        if (range->kind == CC_AST_EXPRESSION_BINARY &&
+            range->binary.operator == CC_AST_BINARY_OPERATOR_RANGE)
+            return lower_subrange(ctx, expr, range, expected);
         Value array = lower_expr(ctx, expr->index.operand, CC_IR_NONE);
         if (ctx->failed) return no_value();
         const CcIrTypeInfo *type = cc_ir_type_info(ctx->module, array.type);

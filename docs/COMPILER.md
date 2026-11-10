@@ -11,7 +11,7 @@ using `i32`, `bool`, `void`, nested tuple values and optional
 checked compound updates, integer `for` ranges, fixed arrays `[N]T`
 with checked indexing, nominal struct values and locally imported
 `pub` functions/structs, scoped raw-pointer `unsafe` operations and
-non-owning checked slice views from local fixed arrays
+non-owning checked slice views and exclusive checked subranges
 can become GCC-compiled executables. The frontend supports additional
 syntax and types that are **not yet lowerable**, including optional
 unwrapping/pattern matching. See
