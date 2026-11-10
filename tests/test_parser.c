@@ -2933,6 +2933,41 @@ static void test_unsafe_pointer_statements(void)
     fixture_destroy(&f);
 }
 
+static void test_slice_intrinsic_ast(void)
+{
+    ParserFixture f;
+    fixture_init(&f,
+        "fn main() -> i32 {"
+        " var a = [20, 22];"
+        " let view: []const i32 = slice(a);"
+        " view[1] += 1;"
+        " return view[0]; }");
+    CcFunctionDeclaration *fn = cc_parser_parse_program(&f.parser);
+    assert(fn != NULL && !f.parser.failed);
+    CcStatement *decl = fn->body->first->next;
+    assert(decl != NULL && decl->kind == CC_AST_STATEMENT_LET);
+    assert(decl->let.type->kind == CC_AST_TYPE_SLICE);
+    assert(decl->let.type->slice_element_const);
+    assert(decl->let.initializer->kind == CC_AST_EXPRESSION_CALL);
+    assert(decl->let.initializer->call.callee->kind ==
+           CC_AST_EXPRESSION_IDENTIFIER);
+    assert(decl->let.initializer->call.arguments != NULL);
+    assert(decl->let.initializer->call.arguments->value->kind ==
+           CC_AST_EXPRESSION_IDENTIFIER);
+    CcStatement *update = decl->next;
+    assert(update != NULL && update->kind == CC_AST_STATEMENT_ASSIGNMENT);
+    assert(update->assignment.target->kind == CC_AST_EXPRESSION_INDEX);
+    assert(update->assignment.operator == CC_AST_ASSIGNMENT_PLUS);
+    assert(update->next != NULL &&
+           update->next->return_expression->kind == CC_AST_EXPRESSION_INDEX);
+    fixture_destroy(&f);
+
+    fixture_init(&f, "fn main() { let a = [1]; let v = slice(a; }");
+    cc_parser_parse_program(&f.parser);
+    assert(f.parser.failed && f.parser.error != NULL);
+    fixture_destroy(&f);
+}
+
 int main(void)
 {
     test_simple_function();
@@ -3010,6 +3045,7 @@ int main(void)
     test_struct_syntax();
     test_module_headers_and_qualified_names();
     test_unsafe_pointer_statements();
+    test_slice_intrinsic_ast();
     test_parse_errors();
     test_empty_source_without_functions();
 

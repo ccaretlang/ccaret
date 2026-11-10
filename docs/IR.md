@@ -11,7 +11,8 @@ has typed parameters, local slots, temporaries, basic blocks and explicit
 terminators. Lowering supports `i32`, `bool`, `void`, a restricted `usize`,
 structural tuples (including zero- and one-element tuples), optional `?T`
 values, fixed arrays `[N]T`, nominal `struct` values and raw pointer
-types `*T` / `*const T`, including nested aggregate types.
+types `*T` / `*const T` and non-owning slices `[]T` / `[]const T`,
+including nested aggregate types.
 Other source types still fail explicitly at IR
 lowering. SSA can be added later if measurements show it is worthwhile.
 
@@ -51,6 +52,7 @@ implemented yet.
 | Logic | `not`, `bit.not`, `bit.and`, `bit.or`, `bit.xor`, equality and ordered comparisons |
 | Locals | `load`, `store` with typed slots |
 | Raw pointers | `addr.slot` (local address), `ptr.load` and `ptr.store` (dereference/write) |
+| Slices | `slice.from.slot`, `slice.get`, `slice.store`, `slice.len` |
 | Aggregates | `tuple`/`tuple.get`, `array` (construct), `array.get` (checked index), `array.store` (checked mutable local write); `struct`/`struct.get`/`struct.set` (named field values) |
 | Tagged values | `some`, `none` (construct optional values) |
 | Calls | Direct `call`, including aggregate parameters and results |
@@ -98,6 +100,21 @@ RHS control-flow changes. The verifier checks slot/pointee agreement,
 register validity and store permission through `*const` pointers; it does
 **not** track the source lexical `unsafe` region or verify pointer validity,
 address lifetime or ownership. `unsafe` enforcement is a semantic-stage rule.
+
+Slice types are interned by element type and element constness, separately
+from raw pointers. `slice.from.slot` records an existing fixed-array slot
+and its statically checked length. IR local slots retain a declared
+mutability flag so the verifier independently checks that writable slice
+origins are mutable arrays (and `addr.slot` has matching pointer constness).
+`slice.get` reads using an `i32`
+index, `slice.store` writes a checked index through a mutable-element
+slice, and `slice.len` obtains the dynamic `usize` length. The verifier
+checks type dependencies, canonical slice types, source-array element and
+length agreement, operand/register types, and forbids writes through
+`[]const T`. Compound writes stage the slice, index and old value in
+slots before evaluating a potentially branching RHS, preserving source
+evaluation order. The verifier does not prove backing-array lifetime,
+exclusive access, aliasing or that a slice value points to valid memory.
 Optional unwrapping, `match`, `try`, `defer`, and their control-flow
 lowerings remain future work. Boolean short-circuiting appears explicitly
 in the CFG. Traps must not become C undefined behavior.

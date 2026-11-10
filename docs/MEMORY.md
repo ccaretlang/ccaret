@@ -41,7 +41,8 @@ pointer provenance, ownership, aliasing, alignment or lifetime. Pointer
 escape can still produce dangling pointers (including returning `&local`).
 The programmer must ensure each dereference is valid. Address-of arbitrary
 expressions, pointer arithmetic, integer-to-pointer casts, allocation,
-volatile operations, slice conversion, FFI and `unsafe fn` are not supported.
+volatile operations, pointer-to-slice conversion, FFI and `unsafe fn` are not
+supported. Fixed-array-to-slice views use the separate `slice(local)` intrinsic.
 
 The following is a *future design sketch*, not currently valid executable C^:
 
@@ -56,9 +57,35 @@ Volatile access is not synchronization. It does not replace atomics or memory ba
 
 ## Arrays and slices
 
-`[N]T` holds N elements. `[]T` holds a pointer and a length and does not own anything. Creating a slice does not allocate or copy elements. Normal slice indexing checks bounds, and the check can be removed after a proof. Unchecked access is an explicit unsafe operation.
+`[N]T` holds N elements. `[]T` holds a pointer and a length and does not
+own anything. The implemented bootstrap intrinsic `slice(array_local)`
+creates a view of a **named local fixed array**, without copying or
+allocating its elements. It yields `[]T` from a `var` array and
+`[]const T` from a `let` array. Array temporaries are rejected.
+`let view = slice(mutable_array)` allows indexed writes through the
+view because the binding's mutability is distinct from element access.
+Reads and writes use checked `i32` indices: negative or out-of-range
+indices abort, including for zero-length slices. `view.len` is a
+`usize` value; slice values can be passed, returned and nested in
+other supported aggregates.
 
-Without borrow checking, the caller has to keep the underlying allocation alive.
+```caret
+fn main() -> i32 {
+    var values = [20, 0];
+    let view: []i32 = slice(values);
+    view[1] += 22;
+    return values[0] + values[1];
+}
+```
+
+**Bounds checks do not establish lifetime safety.** Copying, passing or
+returning a slice does not extend its array's lifetime. A slice returned
+from a function owning its backing local array can dangle, and the
+compiler currently has no escape/lifetime analysis or borrow checking.
+The caller must keep backing storage alive and avoid invalidated aliases.
+The eventual subrange syntax `a[from..to]`, mutable reborrowing rules,
+pointer-origin views, unchecked slice operations and any slice ABI are
+not implemented.
 
 ## `defer` and `errdefer`
 

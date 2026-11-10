@@ -25,7 +25,8 @@ typedef enum {
     CC_IR_TYPE_OPTIONAL,
     CC_IR_TYPE_ARRAY,
     CC_IR_TYPE_STRUCT,
-    CC_IR_TYPE_POINTER
+    CC_IR_TYPE_POINTER,
+    CC_IR_TYPE_SLICE
 } CcIrCompositeKind;
 
 typedef struct CcIrTypeInfo CcIrTypeInfo;
@@ -37,6 +38,7 @@ struct CcIrTypeInfo {
     CcIrType *members;
     CcIrType inner;
     bool pointer_const; /* Pointer target is read-only (not a const binding). */
+    bool slice_const;   /* Slice element access is read-only. */
     CcSourceSpan name;          /* Nominal struct name, otherwise unused. */
     CcSourceSpan *field_names;  /* Nominal struct fields in declaration order. */
     CcIrTypeInfo *next;
@@ -81,7 +83,11 @@ typedef enum {
     CC_IR_SET_FIELD,
     CC_IR_ADDR_SLOT,
     CC_IR_DEREF_PTR,
-    CC_IR_STORE_PTR
+    CC_IR_STORE_PTR,
+    CC_IR_MAKE_SLICE,
+    CC_IR_GET_SLICE,
+    CC_IR_STORE_SLICE,
+    CC_IR_SLICE_LEN
 } CcIrOpcode;
 
 typedef enum {
@@ -130,6 +136,7 @@ struct CcIrBlock {
 struct CcIrSlot {
     uint32_t id;
     CcIrType type;
+    bool mutable; /* Declared local mutability, false for temps/parameters. */
     CcIrSlot *next;
 };
 

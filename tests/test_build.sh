@@ -83,6 +83,22 @@ build_run struct_unit 42
 build_run struct_nominal 42
 build_run struct_condition 42
 build_run struct_mutation 42
+for case in slice_basic slice_const slice_call slice_bool slice_struct \
+    slice_empty slice_flow slice_optional slice_array slice_nested; do
+    build_run "$case" 42
+done
+
+"$binary" emit-ir "$root/tests/fixtures/build_slice_basic.caret" \
+    -o "$out/slice_basic.ir"
+grep -q '= \[\]i32' "$out/slice_basic.ir"
+grep -q 'slice.from.slot' "$out/slice_basic.ir"
+grep -q 'slice.get' "$out/slice_basic.ir"
+grep -q 'slice.store' "$out/slice_basic.ir"
+"$binary" emit-ir "$root/tests/fixtures/build_slice_empty.caret" \
+    -o "$out/slice_empty.ir"
+grep -q 'slice.len' "$out/slice_empty.ir"
+grep -q 'size_t len;' "$out/compiled_slice_basic.c"
+grep -q 'const int32_t \*data;' "$out/compiled_slice_const.c"
 for case in ptr_basic ptr_const ptr_call ptr_bool ptr_nested \
     ptr_struct ptr_array ptr_optional ptr_flow; do
     build_run "$case" 42
@@ -182,7 +198,9 @@ for case in hello call factorial while shortcircuit boolean \
     struct_array struct_updates struct_unit struct_nominal \
     struct_condition struct_mutation \
     ptr_basic ptr_const ptr_call ptr_bool ptr_nested \
-    ptr_struct ptr_array ptr_optional ptr_flow; do
+    ptr_struct ptr_array ptr_optional ptr_flow \
+    slice_basic slice_const slice_call slice_bool slice_struct \
+    slice_empty slice_flow slice_optional slice_array slice_nested; do
     gcc -std=c17 -O2 -Wall -Wextra -Wpedantic -Werror \
         "$out/compiled_$case.c" -o "$out/optimized_$case"
     case "$case" in
@@ -218,7 +236,8 @@ for case in overflow divzero div_overflow neg_overflow \
     compound_overflow compound_divzero \
     array_negative_index array_oob_index array_empty_index \
     array_oob_write array_empty_write struct_compound_overflow \
-    ptr_overflow; do
+    ptr_overflow slice_oob slice_negative slice_empty_oob \
+    slice_oob_write slice_overflow; do
     "$binary" build "$root/tests/fixtures/build_$case.caret" \
         -o "$out/trap_$case"
     set +e
@@ -234,7 +253,8 @@ done
 for case in overflow compound_overflow compound_divzero \
     array_negative_index array_oob_index array_empty_index \
     array_oob_write array_empty_write struct_compound_overflow \
-    ptr_overflow; do
+    ptr_overflow slice_oob slice_negative slice_empty_oob \
+    slice_oob_write slice_overflow; do
     gcc -std=c17 -O2 -Wall -Wextra -Wpedantic -Werror \
         "$out/trap_$case.c" -o "$out/optimized_trap_$case"
     set +e
@@ -257,7 +277,7 @@ grep -q 'error: IR: IR lowering: binary operator not yet supported' \
 
 if "$binary" build "$root/tests/fixtures/build_unsupported.caret" \
     -o "$out/unsupported" > /dev/null 2> "$out/unsupported.err"; then
-    echo "build: slices must fail at IR lowering" >&2
+    echo "build: unsupported slice element type must fail at IR lowering" >&2
     exit 1
 fi
 grep -q 'error: IR: IR backend currently supports only' "$out/unsupported.err"
@@ -298,6 +318,21 @@ grep -q 'error: semantic: cannot write through const raw pointer' \
     "$out/ptr_const_store_invalid.err"
 grep -q 'error: semantic: address-of currently requires a named local' \
     "$out/ptr_address_literal_invalid.err"
+
+for case in slice_const_write_invalid slice_nonarray_invalid \
+    slice_temporary_invalid; do
+    if "$binary" build "$root/tests/fixtures/build_$case.caret" \
+        -o "$out/invalid_$case" > /dev/null 2> "$out/$case.err"; then
+        echo "build: invalid slice case $case must fail" >&2
+        exit 1
+    fi
+done
+grep -q 'error: semantic: cannot write through const slice' \
+    "$out/slice_const_write_invalid.err"
+grep -q 'error: semantic: slice requires a fixed array' \
+    "$out/slice_nonarray_invalid.err"
+grep -q 'error: semantic: slice requires a named local array' \
+    "$out/slice_temporary_invalid.err"
 
 if "$binary" build "$root/tests/fixtures/build_invalid_main.caret" \
     -o "$out/invalid_main" > /dev/null 2> "$out/invalid_main.err"; then

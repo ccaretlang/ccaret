@@ -1,0 +1,6 @@
+fn main() -> i32 {
+    var empty: [0]i32 = [];
+    let view: []i32 = slice(empty);
+    if view.len == 0 { return 42; }
+    return 0;
+}

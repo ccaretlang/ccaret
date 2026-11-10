@@ -29,13 +29,14 @@
 | P-008 | Typed non-SSA IR with explicit blocks. | Aggregate merges and ABI lowering. |
 | P-009 | UTF-8 source with ASCII identifiers for now. | Future Unicode policy. |
 | P-010 | Generated C17 plus optional target-specific extensions. | Target compatibility declarations. |
+| P-011 | An explicit `slice(local_array)` built-in creates non-owning `[]T` / `[]const T` views in the bootstrap C17 pipeline. | Subrange syntax, pointer-origin slices, lifetime/alias rules and final intrinsic naming remain open; no implicit array-to-slice coercion. |
 
 ## Open questions before the lexer and parser freeze
 
 1. Are all reserved words necessary (`volatile`, `some`, and so on), or should some be contextual identifiers?
 2. Exactly which literal forms, escape rules, doc comments and Unicode forms are accepted?
 3. How do generic `<...>` forms coexist with `<`, `>`, `>>` in expressions?
-4. Are array to slice conversions explicit? Should safe local references exist separately from raw pointers?
+4. Beyond the explicit bootstrap `slice(local_array)` intrinsic, should implicit conversions exist? Should safe local references exist separately from raw pointers?
 5. What are the exact numeric cast, pointer provenance, aliasing and signed right-shift rules?
 6. Which forms of `match` patterns and `defer`/`errdefer` blocks are legal?
 7. Does `Result<void,E>` use `.Ok()`? How is error mapping expressed?

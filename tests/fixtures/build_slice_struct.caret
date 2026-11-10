@@ -1,0 +1,7 @@
+struct Pair { x: i32, y: i32 }
+fn main() -> i32 {
+    var data = [Pair { x: 0, y: 0 }, Pair { x: 0, y: 22 }];
+    let view: []Pair = slice(data);
+    view[0] = Pair { x: 20, y: 0 };
+    return view[0].x + data[1].y;
+}

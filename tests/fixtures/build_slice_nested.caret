@@ -1,0 +1,6 @@
+struct Holder { view: []const i32 }
+fn main() -> i32 {
+    let data = [20, 22];
+    let holder = Holder { view: slice(data) };
+    return holder.view[0] + holder.view[1];
+}

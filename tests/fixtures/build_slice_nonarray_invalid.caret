@@ -1,0 +1,5 @@
+fn main() -> i32 {
+    let number = 42;
+    let view = slice(number);
+    return 0;
+}

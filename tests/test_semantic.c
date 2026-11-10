@@ -171,6 +171,14 @@ static void test_valid_programs(void)
         " a[1] += 1; }",
         "fn f(a: [2][2]i32) -> i32 { return a[0][1]; }",
         "fn f(a: [3]i32) -> usize { return a.len; }",
+        "fn f() { let data = [20, 22];"
+        " let v: []const i32 = slice(data);"
+        " let first = v[0]; let size: usize = v.len; }",
+        "fn f() { var data = [20, 22];"
+        " let v: []i32 = slice(data); v[0] = 1; v[1] += 3; }",
+        "fn f(view: []i32) -> []i32 { return view; }",
+        "fn f() { var empty: [0]bool = [];"
+        " let v: []bool = slice(empty); let n = v.len; }",
         "struct Marker {}",
         "pub struct Vec { x: i32, y: i32, }"
         "fn f() -> Vec { return Vec { y: 22, x: 20 }; }",
@@ -267,6 +275,28 @@ static void test_invalid_programs(void)
           "integer literal exceeds 64 bits", "18446744073709551616" },
         { "fn f(p: *i32) -> i32 { return *p; }",
           "raw pointer dereference requires unsafe block", "*p" },
+        { "fn f() { let n = 42; let v = slice(n); }",
+          "slice requires a fixed array", "n" },
+        { "fn f() { let v = slice([20, 22]); }",
+          "slice requires a named local array", "[20, 22]" },
+        { "fn f() { let v = slice(); }",
+          "slice expects one local array", "slice()" },
+        { "fn f() { let v = slice(1, 2); }",
+          "slice expects one local array", "slice(1, 2)" },
+        { "fn f() { let v = slice(missing); }",
+          "undefined name", "missing" },
+        { "fn f() { let data = [20, 22];"
+          " let v = slice(data); v[0] = 1; }",
+          "cannot write through const slice", "v[0]" },
+        { "fn f() { var data = [20, 22];"
+          " let v: []const i32 = slice(data); }",
+          "type mismatch", "slice(data)" },
+        { "fn f() { var data = [20, 22];"
+          " let v = slice(data); v[true] = 1; }",
+          "index must be an integer", "true" },
+        { "fn f() { var data = [true];"
+          " let v = slice(data); v[0] += true; }",
+          "compound assignment requires a numeric variable", "v[0]" },
         { "fn f() { var n = 1; let p = &n; *p = 3; }",
           "raw pointer write requires unsafe block", "*p" },
         { "fn f() { var n = 1; let p = &n; let x = *p; }",

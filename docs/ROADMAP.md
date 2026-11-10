@@ -61,7 +61,11 @@
       reads/writes, typed verified IR and C17 executable pipeline.
 - [ ] Pointer arithmetic, cast/provenance rules, C ABI declarations,
       function pointers, lifetime/escape diagnostics and allocator/FFI support.
-- [ ] Slices, bounds checks and layout intrinsics.
+- [x] Non-owning slice subset: `[]T` / `[]const T` via explicit
+      `slice(local_array)`, checked indexing/writes and `.len`,
+      independent verified IR and executable C17.
+- [ ] Slice subranges, pointer-origin views, lifetime/alias checks,
+      layout intrinsics and full target ABI declarations.
 
 ## Phase 5: Enums, optionals and cleanup
 

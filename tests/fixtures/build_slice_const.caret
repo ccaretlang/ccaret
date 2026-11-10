@@ -1,0 +1,9 @@
+fn sum(values: []const i32) -> i32 {
+    return values[0] + values[1];
+}
+
+fn main() -> i32 {
+    let data = [20, 22];
+    let view: []const i32 = slice(data);
+    return sum(view);
+}

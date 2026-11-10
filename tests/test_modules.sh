@@ -63,6 +63,38 @@ gcc -std=c17 -O2 -Wall -Wextra -Wpedantic -Werror \
 run_exit 42 "$out/unsafe_case/optimized"
 grep -q 'ptr.store' "$out/unsafe_case.ir"
 
+# Slice creation in the entry module and indexed writes in an imported
+# function must survive AST-guided module linking.
+mkdir -p "$out/slice_case/app" "$out/slice_case/lib"
+cat > "$out/slice_case/app/main.caret" <<'EOF'
+module app.main;
+import lib.array as array;
+fn main() -> i32 {
+    var data = [20, 0];
+    array.update(slice(data));
+    return data[0] + data[1];
+}
+EOF
+cat > "$out/slice_case/lib/array.caret" <<'EOF'
+module lib.array;
+import lib.math as math;
+pub fn update(view: []i32) {
+    view[1] += math.delta();
+}
+EOF
+cat > "$out/slice_case/lib/math.caret" <<'EOF'
+module lib.math;
+pub fn delta() -> i32 { return 22; }
+EOF
+"$binary" check "$out/slice_case/app/main.caret"
+"$binary" emit-ir "$out/slice_case/app/main.caret" -o "$out/slice_case.ir"
+"$binary" build "$out/slice_case/app/main.caret" -o "$out/slice_case/bin"
+run_exit 42 "$out/slice_case/bin"
+gcc -std=c17 -O2 -Wall -Wextra -Wpedantic -Werror \
+    "$out/slice_case/bin.c" -o "$out/slice_case/optimized"
+run_exit 42 "$out/slice_case/optimized"
+grep -q 'slice.store' "$out/slice_case.ir"
+
 grep -q 'call @' "$out/main.ir"
 grep -q 'struct cc_m' "$out/main.ir"
 grep -q 'int main(void)' "$out/main.c"

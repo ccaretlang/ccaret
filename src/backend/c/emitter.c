@@ -26,6 +26,14 @@ static void emit_type_definitions(FILE *out, const CcIrModule *module)
             fprintf(out, " *cc_t_%u;\n\n", type->id);
             continue;
         }
+        if (type->kind == CC_IR_TYPE_SLICE) {
+            fputs("typedef struct {\n  ", out);
+            if (type->slice_const) fputs("const ", out);
+            emit_c_type(out, type->inner);
+            fprintf(out, " *data;\n  size_t len;\n} cc_t_%u;\n\n",
+                    type->id);
+            continue;
+        }
         fputs("typedef struct {\n", out);
         if (type->kind == CC_IR_TYPE_OPTIONAL) {
             fputs("  bool has;\n  ", out);
@@ -105,6 +113,25 @@ static void emit_instruction(FILE *out, const CcIrInstruction *i)
         fprintf(out, "*r%u", i->lhs); break;
     case CC_IR_STORE_PTR:
         fprintf(out, "*r%u = r%u", i->lhs, i->rhs); break;
+    case CC_IR_MAKE_SLICE:
+        if (i->arg_count == 0)
+            fprintf(out, "(cc_t_%u){ .data = NULL, .len = 0 }", i->type);
+        else
+            fprintf(out,
+                    "(cc_t_%u){ .data = s%u.elements, .len = %u }",
+                    i->type, i->slot, i->arg_count);
+        break;
+    case CC_IR_GET_SLICE:
+        fprintf(out, "r%u.data[ccrt_index_i32(r%u, r%u.len)]",
+                i->lhs, i->rhs, i->lhs);
+        break;
+    case CC_IR_STORE_SLICE:
+        fprintf(out, "r%u.data[ccrt_index_i32(r%u, r%u.len)] = r%u",
+                i->lhs, i->rhs, i->lhs, i->slot);
+        break;
+    case CC_IR_SLICE_LEN:
+        fprintf(out, "r%u.len", i->lhs);
+        break;
     case CC_IR_NEG: fprintf(out, "ccrt_neg_i32(r%u)", i->lhs); break;
     case CC_IR_NOT: fprintf(out, "!r%u", i->lhs); break;
     case CC_IR_BIT_NOT:

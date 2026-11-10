@@ -1,0 +1,6 @@
+fn main() -> i32 {
+    var data = [2147483647];
+    let view = slice(data);
+    view[0] += 1;
+    return 0;
+}

@@ -1,0 +1,7 @@
+fn head(view: []const [2]i32) -> i32 {
+    return view[0][0] + view[0][1];
+}
+fn main() -> i32 {
+    let data: [1][2]i32 = [[20, 22]];
+    return head(slice(data));
+}

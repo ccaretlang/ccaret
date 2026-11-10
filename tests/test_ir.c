@@ -734,6 +734,13 @@ static void test_pointer_ir_and_verifier(void)
     address->slot = fn->slot_count;
     expect_invalid(f.module, "IR verifier: invalid address-of local slot");
     address->slot = saved_slot;
+    CcIrSlot *address_slot = fn->slots;
+    while (address_slot != NULL && address_slot->id != saved_slot)
+        address_slot = address_slot->next;
+    assert(address_slot != NULL);
+    address_slot->mutable = !address_slot->mutable;
+    expect_invalid(f.module, "IR verifier: invalid address-of local slot");
+    address_slot->mutable = !address_slot->mutable;
     CcIrType saved_type = address->type;
     address->type = CC_IR_BOOL;
     expect_invalid(f.module, "IR verifier: invalid address-of local slot");
@@ -791,11 +798,137 @@ static void test_pointer_ir_and_verifier(void)
     fixture_destroy(&f);
 }
 
+static void test_slice_ir_and_verifier(void)
+{
+    Fixture f;
+    fixture_init(&f,
+        "fn main() -> i32 {"
+        " let fixed = [20, 22]; var data = [0, 0];"
+        " let frozen: []const i32 = slice(fixed);"
+        " let view: []i32 = slice(data);"
+        " view[0] = frozen[0];"
+        " view[1] += frozen[1];"
+        " let length: usize = view.len;"
+        " return data[0] + data[1]; }");
+    lower(&f);
+
+    CcIrTypeInfo *readonly = NULL, *writable = NULL;
+    for (CcIrTypeInfo *type = f.module->types; type != NULL;
+         type = type->next) {
+        if (type->kind != CC_IR_TYPE_SLICE) continue;
+        if (type->slice_const) readonly = type;
+        else writable = type;
+    }
+    assert(readonly != NULL && writable != NULL);
+    assert(readonly->inner == CC_IR_I32 && writable->inner == CC_IR_I32);
+    CcIrFunction *fn = f.module->functions;
+    CcIrInstruction *make = find_instruction(fn, CC_IR_MAKE_SLICE);
+    CcIrInstruction *read = find_instruction(fn, CC_IR_GET_SLICE);
+    CcIrInstruction *write = find_instruction(fn, CC_IR_STORE_SLICE);
+    CcIrInstruction *length = find_instruction(fn, CC_IR_SLICE_LEN);
+    assert(make != NULL && read != NULL && write != NULL &&
+           length != NULL);
+
+    FILE *out = tmpfile();
+    assert(out != NULL && cc_ir_print(out, f.module));
+    rewind(out);
+    char printed[20000];
+    size_t n = fread(printed, 1, sizeof(printed) - 1, out);
+    printed[n] = '\0';
+    assert(strstr(printed, "= []const i32") != NULL);
+    assert(strstr(printed, "= []i32") != NULL);
+    assert(strstr(printed, "slice.from.slot") != NULL);
+    assert(strstr(printed, "slice.get") != NULL);
+    assert(strstr(printed, "slice.store") != NULL);
+    assert(strstr(printed, "slice.len") != NULL);
+    assert(fclose(out) == 0);
+
+    uint32_t saved_slot = make->slot;
+    make->slot = fn->slot_count;
+    expect_invalid(f.module, "IR verifier: invalid slice constructor");
+    make->slot = saved_slot;
+    uint32_t saved_count = make->arg_count;
+    make->arg_count = 999;
+    expect_invalid(f.module, "IR verifier: invalid slice constructor");
+    make->arg_count = saved_count;
+    CcIrSlot *source_slot = fn->slots;
+    while (source_slot != NULL && source_slot->id != make->slot)
+        source_slot = source_slot->next;
+    assert(source_slot != NULL && !source_slot->mutable);
+    source_slot->mutable = true;
+    expect_invalid(f.module, "IR verifier: invalid slice constructor");
+    source_slot->mutable = false;
+    CcIrType saved_type = read->type;
+    read->type = CC_IR_BOOL;
+    expect_invalid(f.module, "IR verifier: invalid slice read");
+    read->type = saved_type;
+    uint32_t saved_reg = read->lhs;
+    read->lhs = CC_IR_NONE;
+    expect_invalid(f.module, "IR verifier: invalid slice read");
+    read->lhs = saved_reg;
+    saved_reg = write->lhs;
+    write->lhs = read->lhs; /* The read uses the const slice. */
+    expect_invalid(f.module, "IR verifier: invalid slice write");
+    write->lhs = saved_reg;
+    saved_reg = write->rhs;
+    write->rhs = CC_IR_NONE;
+    expect_invalid(f.module, "IR verifier: invalid slice write");
+    write->rhs = saved_reg;
+    saved_reg = write->slot;
+    write->slot = CC_IR_NONE;
+    expect_invalid(f.module, "IR verifier: invalid slice write");
+    write->slot = saved_reg;
+    saved_type = length->type;
+    length->type = CC_IR_I32;
+    expect_invalid(f.module, "IR verifier: invalid slice length");
+    length->type = saved_type;
+    saved_reg = length->lhs;
+    length->lhs = CC_IR_NONE;
+    expect_invalid(f.module, "IR verifier: invalid slice length");
+    length->lhs = saved_reg;
+
+    saved_count = readonly->count;
+    readonly->count = 3;
+    expect_invalid(f.module, "IR verifier: invalid slice type");
+    readonly->count = saved_count;
+    saved_type = readonly->inner;
+    readonly->inner = readonly->id;
+    expect_invalid(f.module, "IR verifier: invalid slice type");
+    readonly->inner = saved_type;
+    readonly->pointer_const = true;
+    expect_invalid(f.module, "IR verifier: invalid slice type");
+    readonly->pointer_const = false;
+    readonly->slice_const = false;
+    expect_invalid(f.module, "IR verifier: duplicate composite type");
+    readonly->slice_const = true;
+    CcIrTypeInfo duplicate = *writable;
+    duplicate.id = f.module->type_count;
+    duplicate.next = NULL;
+    writable->next = &duplicate;
+    f.module->type_count++;
+    expect_invalid(f.module, "IR verifier: duplicate composite type");
+    f.module->type_count--;
+    writable->next = NULL;
+
+    CcIrError error;
+    assert(cc_ir_verify(f.module, &error));
+    out = tmpfile();
+    assert(out != NULL && cc_c_emit(out, f.module, &error));
+    rewind(out);
+    n = fread(printed, 1, sizeof(printed) - 1, out);
+    printed[n] = '\0';
+    assert(strstr(printed, "*data;") != NULL);
+    assert(strstr(printed, "size_t len;") != NULL);
+    assert(strstr(printed, "ccrt_index_i32") != NULL);
+    assert(fclose(out) == 0);
+    fixture_destroy(&f);
+}
+
 static void test_explicit_unsupported(void)
 {
     Fixture f;
     fixture_init(&f,
-        "fn unsupported(x: []i32) {}");
+        "fn unsupported(x: []u8) {}");
     CcFunctionDeclaration *program = cc_parser_parse_program(&f.parser);
     assert(!f.parser.failed);
     CcSemanticError semantic_error;
@@ -805,7 +938,7 @@ static void test_explicit_unsupported(void)
     assert(!cc_ir_lower(file, program, &f.arena, &f.module, &error));
     assert(error.message != NULL);
     assert(strcmp(error.message,
-           "IR backend currently supports only i32, usize, bool, void, tuples, optionals, fixed arrays and structs") == 0);
+           "IR backend currently supports only i32, usize, bool, void, tuples, optionals, fixed arrays, structs, pointers and slices") == 0);
     assert(error.span.file_id == f.file_id);
     fixture_destroy(&f);
 }
@@ -837,6 +970,7 @@ int main(void)
     test_struct_ir_and_verifier();
     test_nominal_and_forward_struct_types();
     test_pointer_ir_and_verifier();
+    test_slice_ir_and_verifier();
     test_explicit_unsupported();
     test_bad_inputs();
     puts("IR: all tests passed");

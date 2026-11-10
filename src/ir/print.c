@@ -55,6 +55,10 @@ static const char *op_name(CcIrOpcode op)
     case CC_IR_ADDR_SLOT: return "addr.slot";
     case CC_IR_DEREF_PTR: return "ptr.load";
     case CC_IR_STORE_PTR: return "ptr.store";
+    case CC_IR_MAKE_SLICE: return "slice.from.slot";
+    case CC_IR_GET_SLICE: return "slice.get";
+    case CC_IR_STORE_SLICE: return "slice.store";
+    case CC_IR_SLICE_LEN: return "slice.len";
     }
     return "invalid";
 }
@@ -74,6 +78,10 @@ bool cc_ir_print(FILE *out, const CcIrModule *module)
         } else if (type->kind == CC_IR_TYPE_POINTER) {
             fputc('*', out);
             if (type->pointer_const) fputs("const ", out);
+            print_type(out, type->inner);
+        } else if (type->kind == CC_IR_TYPE_SLICE) {
+            fputs("[]", out);
+            if (type->slice_const) fputs("const ", out);
             print_type(out, type->inner);
         } else if (type->kind == CC_IR_TYPE_STRUCT) {
             CcSourceSpan name = type->name;
@@ -137,6 +145,20 @@ bool cc_ir_print(FILE *out, const CcIrModule *module)
                     fprintf(out, " %%%u", i->lhs); break;
                 case CC_IR_STORE_PTR:
                     fprintf(out, " *%%%u = %%%u", i->lhs, i->rhs); break;
+                case CC_IR_MAKE_SLICE:
+                    fprintf(out, " slot%u (length %u)", i->slot,
+                            i->arg_count);
+                    break;
+                case CC_IR_GET_SLICE:
+                    fprintf(out, " %%%u[%%%u]", i->lhs, i->rhs);
+                    break;
+                case CC_IR_STORE_SLICE:
+                    fprintf(out, " %%%u[%%%u] = %%%u", i->lhs, i->rhs,
+                            i->slot);
+                    break;
+                case CC_IR_SLICE_LEN:
+                    fprintf(out, " %%%u", i->lhs);
+                    break;
                 case CC_IR_NEG:
                 case CC_IR_NOT:
                 case CC_IR_BIT_NOT:

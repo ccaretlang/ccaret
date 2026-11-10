@@ -81,6 +81,19 @@ explicit `[N]T` type. Types and values permit nesting with tuples,
 optionals, and other fixed arrays. Indexing uses `arr[index]`;
 fixed-array length uses `arr.len` and has type `usize`.
 
+## Non-owning slice views (bootstrap subset)
+
+The types `[]T` and `[]const T` contain a view into existing elements,
+not an array value copy. `slice(array_name)` is the explicitly recognized
+single-argument built-in call when there is no user function named
+`slice`. Its argument must be a named local fixed array; grouping
+parentheses are allowed, but `slice([1, 2])` is rejected. `var` arrays
+yield mutable-element views and `let` arrays yield const-element views.
+Use `view[i]` for reads and direct `view[i] = x` / numeric compound
+assignments for writes through mutable views. Indexing is bounds checked,
+and `view.len` evaluates to a `usize`. This milestone does not parse
+`view[from..to]` or implement implicit array-to-slice coercions.
+
 ## Nominal structures
 
 Top-level `struct Name { first: T, second: U, }` declares a nominal

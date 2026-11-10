@@ -1043,6 +1043,38 @@ static SemType *check_expr(SemContext *ctx, const CcExpression *expr,
             return NULL;
         }
 
+        /* Explicit, non-owning local-array view. No implicit array-to-slice
+         * conversion and no address of an array temporary is permitted. */
+        if (name_is(ctx, callee->identifier_name, "slice") &&
+            find_function(ctx, callee->identifier_name) == NULL) {
+            CcCallArgument *arg = expr->call.arguments;
+            if (arg == NULL || arg->next != NULL) {
+                fail(ctx, expr->span, "slice expects one local array");
+                return NULL;
+            }
+            const CcExpression *target = arg->value;
+            while (target->kind == CC_AST_EXPRESSION_PARENTHESIZED)
+                target = target->parenthesized_inner;
+            if (target->kind != CC_AST_EXPRESSION_IDENTIFIER) {
+                fail(ctx, target->span, "slice requires a named local array");
+                return NULL;
+            }
+            SemVariable *array = find_variable(ctx, target->identifier_name);
+            if (array == NULL) {
+                fail(ctx, target->span, "undefined name");
+                return NULL;
+            }
+            if (array->type->kind != SEM_ARRAY) {
+                fail(ctx, target->span, "slice requires a fixed array");
+                return NULL;
+            }
+            SemType *view = new_type(ctx, SEM_SLICE, expr->span);
+            if (view == NULL) return NULL;
+            view->inner = array->type->inner;
+            view->is_const = !array->mutable;
+            return coerce(ctx, view, expected, expr->span);
+        }
+
         SemFunction *function = find_function(ctx, callee->identifier_name);
 
         if (function == NULL) {
@@ -1285,12 +1317,18 @@ static bool check_statement(SemContext *ctx, const CcStatement *statement)
                 fail(ctx, target->index.operand->span, "undefined name");
                 return false;
             }
-            if (!base->mutable) {
+            if (base->type->kind == SEM_SLICE && base->type->is_const) {
+                fail(ctx, target->span, "cannot write through const slice");
+                return false;
+            }
+            if (base->type->kind == SEM_ARRAY && !base->mutable) {
                 fail(ctx, target->span, "cannot assign to immutable binding");
                 return false;
             }
-            if (base->type->kind != SEM_ARRAY) {
-                fail(ctx, target->span, "indexed assignment requires an array");
+            if (base->type->kind != SEM_ARRAY &&
+                base->type->kind != SEM_SLICE) {
+                fail(ctx, target->span,
+                     "indexed assignment requires an array or slice");
                 return false;
             }
             SemType *index = check_expr(ctx, target->index.index, NULL);

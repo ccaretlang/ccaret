@@ -51,6 +51,20 @@ These rules must hold at every GCC optimization level. The backend must not rely
 
 Arrays and slices are different types. Any implicit array to slice conversion needs an exact rule. A slice does not own memory and cannot stop a use-after-free.
 
+The executable bootstrap implements an **explicit** array-to-slice
+intrinsic `slice(name)` for a named local fixed array (including empty
+arrays). It returns `[]T` for a `var` array and `[]const T` for a
+`let` array. There is no implicit conversion or view of a temporary,
+struct field, or pointer. Slices are non-owning `(data, len)` values;
+copying/passing/returning them preserves the borrowed address without
+extending the backing array's lifetime. The checker does not reject
+dangling slice escapes. `[]const T` rejects indexed writes; by contrast
+`let view: []T` may write its elements. All implemented slice indices
+are `i32` and checked at runtime; `view.len` has type `usize`.
+Slice-indexed compound writes currently support `i32` arithmetic.
+Slicing subranges, explicit lifetime annotations and ownership transfer
+remain future work.
+
 The bootstrap C17 pipeline implements `*T`, `*const T` and `?*T`
 as raw pointer values. Taking the address of a mutable named local (`&var`)
 gives `*T`; an immutable binding (`&let`) gives `*const T`. Reads/writes
@@ -86,7 +100,7 @@ values copy by value, including parameters and return values; a
 mutable local can update one of its fields. Struct types may nest
 inside fixed arrays, tuples, optionals and other structs. Recursive
 by-value structures (direct or indirect) are rejected; pointers to
-recursive types via pointers are not yet supported by the current recursive
+recursive types through pointers are not yet supported by the current
 layout analysis.
 
 Across local modules, `pub struct` exports a nominal type and `pub`

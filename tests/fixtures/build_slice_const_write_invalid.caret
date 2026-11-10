@@ -1,0 +1,6 @@
+fn main() -> i32 {
+    let data = [20, 22];
+    let view = slice(data);
+    view[0] = 5;
+    return 0;
+}

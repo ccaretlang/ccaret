@@ -73,6 +73,14 @@ entry point is `fn main() -> i32`.
   `*p = value` / `*p += value` (checked `i32` compounds) require a source
   `unsafe { ... }` statement. Dereference checks are static type checks,
   not runtime null, bounds, provenance or lifetime checks.
+- Non-owning `[]T` / `[]const T` views from `slice(local_array)` with
+  a checked `i32` index and dynamic `usize` `.len`. Views preserve
+  backing storage rather than copying it; `let` arrays yield const
+  views and `var` arrays yield writable views. Named mutable-element
+  slices support direct indexed writes and checked `i32` compound
+  updates (even when the slice's binding is `let`). Slices can be
+  passed, returned and included in supported aggregates. Their lifetime
+  is not checked or extended.
 - Arguments are lowered left-to-right before the C function call, so the
   generated C's unspecified argument evaluation order has no effect.
   Tuple elements are similarly sequenced before construction.
@@ -89,6 +97,12 @@ Nominal structs use one C17 typedef per declaration, with deterministic
 also have a dummy byte. Struct types are emitted after their dependencies.
 Raw pointer types use corresponding C pointer typedefs (`T *` or
 `const T *`), and pointer temporaries are initialized to `NULL`.
+Slices use internal `typedef struct { T *data; size_t len; }` layouts;
+const-element slices use `const T *data`. Zero-length slices contain
+`NULL` and length zero; any indexing traps before dereference. Positive
+length slices point into a fixed-array local. Slice index checks call
+`ccrt_index_i32` before C pointer indexing. This does not validate
+backing-storage lifetime or support a foreign ABI.
 The generated code does not perform lifetime or null checks before
 dereferencing. This is an **internal implementation layout**, not
 a stable language or foreign-function ABI.
@@ -108,15 +122,15 @@ wrapping/cast decisions remain open.
 
 ## Not yet supported by the backend
 
-Slices, pointer arithmetic/casts/volatile pointers, floating-point values,
-enums, unions, type aliases,
+Slice subranges, pointer-origin slice creation, pointer arithmetic, casts,
+volatile pointers, floating-point values, enums, unions, type aliases,
 signed shifts (`<<`, `>>`, `<<=`, `>>=`) and multi-width integer
 arithmetic have not yet been lowered. Signed right-shift semantics
 are still open in the language specification. Optional
 inspection/unwrapping and pattern matching are not yet implemented.
-Nested indexed assignment (`a[i][j] = x`), slice creation/indexing,
-arbitrary `usize` arithmetic and indexed targets other than a named
-mutable array local are not yet supported.
+Nested indexed assignment (`a[i][j] = x`), arbitrary `usize` arithmetic,
+and indexed targets other than a named mutable array local or named
+mutable-element slice local are not yet supported.
 Nested struct field writes (`object.child.value = x`) are not yet
 supported; directly assigned struct fields must belong to a `var`
 local. Recursive struct value types and recursive struct-through-pointer
@@ -150,6 +164,10 @@ field writes, checked overflow traps and invalid declarations.
 Pointer tests exercise `*const`, nested pointers, composite pointees,
 optionals, function calls, CFG-sensitive pointer stores, type/IR mutation
 rejection and checked-overflow aborts under optimized GCC.
+Slice tests exercise mutable/const element views, aliasing of backing arrays,
+zero-length slices, nested aggregates, optionals, parameter/return values,
+CFG-sensitive checked compound writes, bounds aborts, malformed IR
+rejection and optimized C17.
 The IR unit suite
 deliberately mutates valid IR to test refusal of malformed instructions,
 types, constructors, projections and terminators.

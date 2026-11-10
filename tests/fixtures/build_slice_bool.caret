@@ -1,0 +1,7 @@
+fn main() -> i32 {
+    var data: [2]bool = [true, false];
+    let view = slice(data);
+    view[1] = true;
+    if view[0] && view[1] { return 42; }
+    return 0;
+}

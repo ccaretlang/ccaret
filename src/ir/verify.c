@@ -57,6 +57,7 @@ static bool use_register(CcIrError *error, const CcIrInstruction *instruction,
 static bool validate_instruction(const CcIrModule *module,
                                   const CcIrInstruction *i,
                                   CcIrError *error, const CcIrType *slots,
+                                  const bool *slot_mutable,
                                   uint32_t slot_count, CcIrType *types,
                                   uint32_t *blocks, bool *defined,
                                   uint32_t register_count, uint32_t block_id)
@@ -100,7 +101,8 @@ static bool validate_instruction(const CcIrModule *module,
     case CC_IR_ADDR_SLOT: {
         const CcIrTypeInfo *pointer = cc_ir_type_info(module, i->type);
         if (pointer == NULL || pointer->kind != CC_IR_TYPE_POINTER ||
-            i->slot >= slot_count || pointer->inner != slots[i->slot])
+            i->slot >= slot_count || pointer->inner != slots[i->slot] ||
+            pointer->pointer_const == slot_mutable[i->slot])
             return fail(error, i->span,
                         "IR verifier: invalid address-of local slot");
         break;
@@ -132,6 +134,54 @@ static bool validate_instruction(const CcIrModule *module,
             !USE(i->rhs, pointer->inner))
             return fail(error, i->span,
                         "IR verifier: invalid raw pointer write");
+        break;
+    }
+    case CC_IR_MAKE_SLICE: {
+        const CcIrTypeInfo *view = cc_ir_type_info(module, i->type);
+        const CcIrTypeInfo *array = i->slot < slot_count
+            ? cc_ir_type_info(module, slots[i->slot]) : NULL;
+        if (view == NULL || view->kind != CC_IR_TYPE_SLICE ||
+            array == NULL || array->kind != CC_IR_TYPE_ARRAY ||
+            view->inner != array->inner || i->arg_count != array->count ||
+            view->slice_const == slot_mutable[i->slot])
+            return fail(error, i->span,
+                        "IR verifier: invalid slice constructor");
+        break;
+    }
+    case CC_IR_GET_SLICE: {
+        if (i->lhs >= register_count || !defined[i->lhs])
+            return fail(error, i->span,
+                        "IR verifier: invalid slice read");
+        CcIrType source = types[i->lhs];
+        const CcIrTypeInfo *view = cc_ir_type_info(module, source);
+        if (view == NULL || view->kind != CC_IR_TYPE_SLICE ||
+            i->type != view->inner || !USE(i->lhs, source) ||
+            !USE(i->rhs, CC_IR_I32))
+            return fail(error, i->span, "IR verifier: invalid slice read");
+        break;
+    }
+    case CC_IR_STORE_SLICE: {
+        if (i->type != CC_IR_VOID || i->lhs >= register_count ||
+            !defined[i->lhs])
+            return fail(error, i->span,
+                        "IR verifier: invalid slice write");
+        CcIrType source = types[i->lhs];
+        const CcIrTypeInfo *view = cc_ir_type_info(module, source);
+        if (view == NULL || view->kind != CC_IR_TYPE_SLICE ||
+            view->slice_const || !USE(i->lhs, source) ||
+            !USE(i->rhs, CC_IR_I32) || !USE(i->slot, view->inner))
+            return fail(error, i->span, "IR verifier: invalid slice write");
+        break;
+    }
+    case CC_IR_SLICE_LEN: {
+        if (i->type != CC_IR_USIZE || i->lhs >= register_count ||
+            !defined[i->lhs])
+            return fail(error, i->span, "IR verifier: invalid slice length");
+        CcIrType source = types[i->lhs];
+        const CcIrTypeInfo *view = cc_ir_type_info(module, source);
+        if (view == NULL || view->kind != CC_IR_TYPE_SLICE ||
+            !USE(i->lhs, source))
+            return fail(error, i->span, "IR verifier: invalid slice length");
         break;
     }
     case CC_IR_NEG:
@@ -329,16 +379,22 @@ bool cc_ir_verify(const CcIrModule *module, CcIrError *error)
              type->kind != CC_IR_TYPE_OPTIONAL &&
              type->kind != CC_IR_TYPE_ARRAY &&
              type->kind != CC_IR_TYPE_STRUCT &&
-             type->kind != CC_IR_TYPE_POINTER))
+             type->kind != CC_IR_TYPE_POINTER &&
+             type->kind != CC_IR_TYPE_SLICE))
             return fail(error, error->span, "IR verifier: invalid type table");
-        if (type->kind == CC_IR_TYPE_POINTER) {
+        if (type->kind == CC_IR_TYPE_POINTER ||
+            type->kind == CC_IR_TYPE_SLICE) {
             if (type->inner == CC_IR_VOID ||
                 (type->inner >= type->id &&
                  type->inner != CC_IR_USIZE) ||
                 type->count != 0 || type->members != NULL ||
-                type->field_names != NULL)
+                type->field_names != NULL ||
+                (type->kind == CC_IR_TYPE_POINTER && type->slice_const) ||
+                (type->kind == CC_IR_TYPE_SLICE && type->pointer_const))
                 return fail(error, error->span,
-                            "IR verifier: invalid raw pointer type");
+                    type->kind == CC_IR_TYPE_SLICE
+                        ? "IR verifier: invalid slice type"
+                        : "IR verifier: invalid raw pointer type");
         } else if (type->kind == CC_IR_TYPE_OPTIONAL) {
             if (type->count != 0 || type->members != NULL ||
                 type->field_names != NULL ||
@@ -398,6 +454,11 @@ bool cc_ir_verify(const CcIrModule *module, CcIrError *error)
                     type->pointer_const == other->pointer_const)
                     return fail(error, error->span,
                                 "IR verifier: duplicate composite type");
+            } else if (type->kind == CC_IR_TYPE_SLICE) {
+                if (type->inner == other->inner &&
+                    type->slice_const == other->slice_const)
+                    return fail(error, error->span,
+                                "IR verifier: duplicate composite type");
             } else if (type->kind == CC_IR_TYPE_OPTIONAL ||
                 type->kind == CC_IR_TYPE_ARRAY) {
                 if (type->inner == other->inner &&
@@ -445,6 +506,9 @@ bool cc_ir_verify(const CcIrModule *module, CcIrError *error)
         CcIrType *slot_types =
             calloc(fn->slot_count == 0 ? 1 : fn->slot_count,
                    sizeof(*slot_types));
+        bool *slot_mutable =
+            calloc(fn->slot_count == 0 ? 1 : fn->slot_count,
+                   sizeof(*slot_mutable));
         CcIrType *types =
             calloc(fn->register_count == 0 ? 1 : fn->register_count,
                    sizeof(*types));
@@ -454,9 +518,11 @@ bool cc_ir_verify(const CcIrModule *module, CcIrError *error)
         bool *defined =
             calloc(fn->register_count == 0 ? 1 : fn->register_count,
                    sizeof(*defined));
-        if (slot_types == NULL || types == NULL || blocks == NULL ||
+        if (slot_types == NULL || slot_mutable == NULL ||
+            types == NULL || blocks == NULL ||
             defined == NULL) {
             free(slot_types);
+            free(slot_mutable);
             free(types);
             free(blocks);
             free(defined);
@@ -469,7 +535,8 @@ bool cc_ir_verify(const CcIrModule *module, CcIrError *error)
             if (slot->id != slot_count || slot->id >= fn->slot_count ||
                 slot->type == CC_IR_VOID ||
                 !valid_type(module, slot->type)) { valid = false; break; }
-            slot_types[slot_count++] = slot->type;
+            slot_types[slot_count] = slot->type;
+            slot_mutable[slot_count++] = slot->mutable;
         }
         if (slot_count != fn->slot_count) valid = false;
         for (const CcIrRegister *reg = fn->registers;
@@ -503,7 +570,8 @@ bool cc_ir_verify(const CcIrModule *module, CcIrError *error)
             for (const CcIrInstruction *instruction = block->first;
                  instruction != NULL; instruction = instruction->next) {
                 if (!validate_instruction(module, instruction, error,
-                                          slot_types, fn->slot_count, types,
+                                          slot_types, slot_mutable,
+                                          fn->slot_count, types,
                                           blocks, defined, fn->register_count,
                                           block->id)) {
                     valid = false; break;
@@ -559,6 +627,7 @@ bool cc_ir_verify(const CcIrModule *module, CcIrError *error)
         if (!valid && error->message == NULL)
             fail(error, fn->span, "IR verifier: missing block or register");
         free(slot_types);
+        free(slot_mutable);
         free(types);
         free(blocks);
         free(defined);

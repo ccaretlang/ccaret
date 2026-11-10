@@ -42,6 +42,12 @@ are arena-allocated; it does not yet annotate the AST with persistent
   reads and writes. Reject stores through `*const T`, non-pointer
   dereferences, non-lvalue address targets and mismatched pointer types.
   Nested `unsafe` blocks retain lexical scoping and do not disable type checks.
+- Recognize the explicit `slice(name)` intrinsic for a named local
+  fixed array. A `var` array produces `[]T`; a `let` array produces
+  `[]const T`. No implicit conversion or temporary-array view is
+  accepted. Type-check `.len`, checked indexing and indexed writes;
+  const-element slices reject writes even when their binding is `var`,
+  while an immutable `let` binding of `[]T` may modify its elements.
 - Infer simple local types, using `i32` for an unconstrained integer
   literal. Check integer-literal range against the contextual integer type
   (including unary negation), with no implicit narrowing between concrete
@@ -68,10 +74,14 @@ are arena-allocated; it does not yet annotate the AST with persistent
 - Raw pointers do not provide lifetime, aliasing, provenance or ownership
   checks. Returning the address of a local or otherwise retaining a pointer
   past its referent's lifetime can dangle. No general escape analysis exists.
+- Slices do not extend backing storage lifetime; copying, passing or
+  returning a slice is not checked for use-after-scope. The checker
+  enforces element constness and source array mutability, not aliasing.
 - Assignment targets are mutable local variables, single-level indexed
-  elements of mutable fixed-array locals, named fields of mutable
-  struct locals, or raw-pointer targets inside `unsafe`. Nested field/index
-  writes, tuple members and slice writes remain unsupported.
+  elements of mutable fixed-array locals, direct indices on named
+  writable-element slice locals, named fields of mutable struct locals,
+  or raw-pointer targets inside `unsafe`. Nested field/index writes,
+  tuple members and subrange slice writes remain unsupported.
 - Float type signatures and operations on float *variables* are recognized;
   floating-point literal expressions still await parser support.
 - Integer literals are checked for representable values (including the

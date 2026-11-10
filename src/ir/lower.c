@@ -87,11 +87,13 @@ static CcIrType intern_type(Lower *ctx, CcIrCompositeKind kind,
         if (info->kind != kind) continue;
         if (kind == CC_IR_TYPE_STRUCT) continue;
         if (kind == CC_IR_TYPE_OPTIONAL || kind == CC_IR_TYPE_ARRAY ||
-            kind == CC_IR_TYPE_POINTER) {
+            kind == CC_IR_TYPE_POINTER || kind == CC_IR_TYPE_SLICE) {
             if (info->inner == inner &&
                 (kind != CC_IR_TYPE_ARRAY || info->count == count) &&
                 (kind != CC_IR_TYPE_POINTER ||
-                 info->pointer_const == (count != 0)))
+                 info->pointer_const == (count != 0)) &&
+                (kind != CC_IR_TYPE_SLICE ||
+                 info->slice_const == (count != 0)))
                 return info->id;
             continue;
         }
@@ -113,7 +115,9 @@ static CcIrType intern_type(Lower *ctx, CcIrCompositeKind kind,
     info->inner = inner;
     info->count = count;
     info->pointer_const = kind == CC_IR_TYPE_POINTER && count != 0;
-    if (kind == CC_IR_TYPE_POINTER) info->count = 0;
+    info->slice_const = kind == CC_IR_TYPE_SLICE && count != 0;
+    if (kind == CC_IR_TYPE_POINTER || kind == CC_IR_TYPE_SLICE)
+        info->count = 0;
     if (kind == CC_IR_TYPE_TUPLE && count != 0) {
         info->members = new_object(ctx, count * sizeof(*members), span);
         if (info->members == NULL) return CC_IR_NONE;
@@ -314,6 +318,20 @@ static bool type_of(Lower *ctx, const CcType *node, CcIrType *result,
                               NULL, node->span);
         return !ctx->failed;
     }
+    if (node->kind == CC_AST_TYPE_SLICE) {
+        CcIrType inner;
+        if (!type_of(ctx, node->slice_inner, &inner, node->span))
+            return false;
+        if (inner == CC_IR_VOID) {
+            error_at(ctx, node->span,
+                     "IR lowering: void slice element unsupported");
+            return false;
+        }
+        *result = intern_type(ctx, CC_IR_TYPE_SLICE, inner,
+                              node->slice_element_const ? 1U : 0U,
+                              NULL, node->span);
+        return !ctx->failed;
+    }
     if (node->kind == CC_AST_TYPE_TUPLE) {
         uint32_t count = 0;
         for (CcTupleTypeElement *part = node->tuple_elements; part != NULL;
@@ -360,7 +378,7 @@ static bool type_of(Lower *ctx, const CcType *node, CcIrType *result,
         return !ctx->failed;
     }
     error_at(ctx, node == NULL ? fallback : node->span,
-             "IR backend currently supports only i32, usize, bool, void, tuples, optionals, fixed arrays and structs");
+             "IR backend currently supports only i32, usize, bool, void, tuples, optionals, fixed arrays, structs, pointers and slices");
     return false;
 }
 
@@ -398,6 +416,7 @@ static uint32_t make_slot(Lower *ctx, CcIrType type, CcSourceSpan span)
     if (slot == NULL) return CC_IR_NONE;
     slot->id = ctx->function->slot_count++;
     slot->type = type;
+    slot->mutable = false;
     slot->next = NULL;
     if (ctx->function->last_slot == NULL)
         ctx->function->slots = slot;
@@ -410,8 +429,15 @@ static uint32_t make_slot(Lower *ctx, CcIrType type, CcSourceSpan span)
 static bool bind_variable(Lower *ctx, CcSourceSpan name, uint32_t slot,
                           bool mutable)
 {
+    CcIrSlot *decl = ctx->function->slots;
+    while (decl != NULL && decl->id != slot) decl = decl->next;
+    if (decl == NULL) {
+        error_at(ctx, name, "IR lowering: invalid binding slot");
+        return false;
+    }
     LowerVar *variable = new_object(ctx, sizeof(*variable), name);
     if (variable == NULL) return false;
+    decl->mutable = mutable;
     variable->name = name;
     variable->slot = slot;
     variable->mutable = mutable;
@@ -847,9 +873,10 @@ static Value lower_expr(Lower *ctx, const CcExpression *expr,
         Value array = lower_expr(ctx, expr->index.operand, CC_IR_NONE);
         if (ctx->failed) return no_value();
         const CcIrTypeInfo *type = cc_ir_type_info(ctx->module, array.type);
-        if (type == NULL || type->kind != CC_IR_TYPE_ARRAY) {
+        if (type == NULL || (type->kind != CC_IR_TYPE_ARRAY &&
+                             type->kind != CC_IR_TYPE_SLICE)) {
             error_at(ctx, expr->span,
-                     "IR lowering: indexing requires fixed array");
+                     "IR lowering: indexing requires array or slice");
             return no_value();
         }
         uint32_t saved = make_slot(ctx, array.type, expr->span);
@@ -865,12 +892,14 @@ static Value lower_expr(Lower *ctx, const CcExpression *expr,
         array = load(ctx, saved, expr->span);
         if (ctx->failed) return no_value();
         CcIrInstruction *node = NULL;
-        Value item = append(ctx, CC_IR_GET_ARRAY, type->inner,
+        Value item = append(ctx, type->kind == CC_IR_TYPE_SLICE
+                                ? CC_IR_GET_SLICE : CC_IR_GET_ARRAY, type->inner,
                             expr->span, &node);
         if (node != NULL) {
             node->lhs = array.reg;
             node->rhs = index.reg;
-            node->arg_count = type->count;
+            if (type->kind == CC_IR_TYPE_ARRAY)
+                node->arg_count = type->count;
         }
         return item;
     }
@@ -894,11 +923,20 @@ static Value lower_expr(Lower *ctx, const CcExpression *expr,
             }
             return result;
         }
-        if (type == NULL || type->kind != CC_IR_TYPE_ARRAY ||
+        if (type == NULL ||
+            (type->kind != CC_IR_TYPE_ARRAY &&
+             type->kind != CC_IR_TYPE_SLICE) ||
             !name_is(ctx, expr->member.name, "len")) {
             error_at(ctx, expr->span,
-                     "IR lowering: only fixed-array .len is supported");
+                     "IR lowering: only array/slice .len is supported");
             return no_value();
+        }
+        if (type->kind == CC_IR_TYPE_SLICE) {
+            CcIrInstruction *node = NULL;
+            Value length = append(ctx, CC_IR_SLICE_LEN, CC_IR_USIZE,
+                                  expr->span, &node);
+            if (node != NULL) node->lhs = array.reg;
+            return length;
         }
         return constant_usize(ctx, type->count, expr->span);
     }
@@ -1078,6 +1116,48 @@ static Value lower_expr(Lower *ctx, const CcExpression *expr,
         return result;
     }
     case CC_AST_EXPRESSION_CALL: {
+        if (expr->call.callee->kind == CC_AST_EXPRESSION_IDENTIFIER &&
+            name_is(ctx, expr->call.callee->identifier_name, "slice") &&
+            find_function(ctx, expr->call.callee->identifier_name) == NULL) {
+            const CcCallArgument *arg = expr->call.arguments;
+            if (arg == NULL || arg->next != NULL) {
+                error_at(ctx, expr->span,
+                         "IR lowering: slice expects one array local");
+                return no_value();
+            }
+            const CcExpression *source = arg->value;
+            while (source->kind == CC_AST_EXPRESSION_PARENTHESIZED)
+                source = source->parenthesized_inner;
+            if (source->kind != CC_AST_EXPRESSION_IDENTIFIER) {
+                error_at(ctx, source->span,
+                         "IR lowering: slice needs local array");
+                return no_value();
+            }
+            LowerVar *var = find_variable(ctx, source->identifier_name);
+            const CcIrTypeInfo *array = var == NULL ? NULL
+                : cc_ir_type_info(ctx->module, slot_type(ctx, var->slot));
+            if (array == NULL || array->kind != CC_IR_TYPE_ARRAY) {
+                error_at(ctx, source->span,
+                         "IR lowering: slice needs fixed array");
+                return no_value();
+            }
+            CcIrType slice = intern_type(ctx, CC_IR_TYPE_SLICE, array->inner,
+                                         var->mutable ? 0U : 1U, NULL,
+                                         expr->span);
+            if (ctx->failed || (expected != CC_IR_NONE && expected != slice)) {
+                error_at(ctx, expr->span,
+                         "IR lowering: slice type mismatch");
+                return no_value();
+            }
+            CcIrInstruction *node = NULL;
+            Value result = append(ctx, CC_IR_MAKE_SLICE, slice,
+                                  expr->span, &node);
+            if (node != NULL) {
+                node->slot = var->slot;
+                node->arg_count = array->count;
+            }
+            return result;
+        }
         if (expr->call.callee->kind != CC_AST_EXPRESSION_IDENTIFIER) {
             error_at(ctx, expr->span, "IR lowering: indirect call unsupported");
             return no_value();
@@ -1292,6 +1372,76 @@ static bool compound_opcode(CcAssignmentOperator operator, CcIrOpcode *out)
     }
 }
 
+static bool lower_slice_assignment(Lower *ctx, const CcStatement *node,
+                                   uint32_t source_slot,
+                                   const CcIrTypeInfo *slice)
+{
+    const CcExpression *target = node->assignment.target;
+    Value view = load(ctx, source_slot, target->span);
+    uint32_t view_slot = make_slot(ctx, view.type, target->span);
+    if (ctx->failed || !store(ctx, view_slot, view, target->span))
+        return false;
+    Value index = lower_expr(ctx, target->index.index, CC_IR_I32);
+    if (ctx->failed || index.type != CC_IR_I32) {
+        error_at(ctx, target->index.index->span,
+                 "IR lowering: slice index requires i32");
+        return false;
+    }
+    uint32_t index_slot = make_slot(ctx, CC_IR_I32, target->span);
+    if (ctx->failed || !store(ctx, index_slot, index, target->span))
+        return false;
+    bool compound = node->assignment.operator != CC_AST_ASSIGNMENT_ASSIGN;
+    CcIrOpcode operation = CC_IR_ADD;
+    uint32_t old_slot = CC_IR_NONE;
+    if (compound) {
+        if (slice->inner != CC_IR_I32 ||
+            !compound_opcode(node->assignment.operator, &operation)) {
+            error_at(ctx, target->span,
+                     "IR lowering: compound slice store requires i32");
+            return false;
+        }
+        view = load(ctx, view_slot, target->span);
+        index = load(ctx, index_slot, target->span);
+        if (ctx->failed) return false;
+        CcIrInstruction *read = NULL;
+        Value old = append(ctx, CC_IR_GET_SLICE, slice->inner,
+                           target->span, &read);
+        if (read == NULL) return false;
+        read->lhs = view.reg;
+        read->rhs = index.reg;
+        old_slot = make_slot(ctx, slice->inner, target->span);
+        if (ctx->failed || !store(ctx, old_slot, old, target->span))
+            return false;
+    }
+    Value rhs = lower_expr(ctx, node->assignment.value, slice->inner);
+    if (ctx->failed || rhs.type != slice->inner) {
+        error_at(ctx, node->span,
+                 "IR lowering: slice store type mismatch");
+        return false;
+    }
+    if (compound) {
+        Value old = load(ctx, old_slot, node->span);
+        if (ctx->failed) return false;
+        CcIrInstruction *arithmetic = NULL;
+        Value updated = append(ctx, operation, CC_IR_I32,
+                               node->span, &arithmetic);
+        if (arithmetic == NULL) return false;
+        arithmetic->lhs = old.reg;
+        arithmetic->rhs = rhs.reg;
+        rhs = updated;
+    }
+    view = load(ctx, view_slot, node->span);
+    index = load(ctx, index_slot, node->span);
+    if (ctx->failed) return false;
+    CcIrInstruction *write = NULL;
+    append(ctx, CC_IR_STORE_SLICE, CC_IR_VOID, node->span, &write);
+    if (write == NULL) return false;
+    write->lhs = view.reg;
+    write->rhs = index.reg;
+    write->slot = rhs.reg; /* Register holding the new element value. */
+    return true;
+}
+
 static bool lower_index_assignment(Lower *ctx, const CcStatement *node)
 {
     const CcExpression *target = node->assignment.target;
@@ -1308,6 +1458,14 @@ static bool lower_index_assignment(Lower *ctx, const CcStatement *node)
     }
     const CcIrTypeInfo *array =
         cc_ir_type_info(ctx->module, slot_type(ctx, var->slot));
+    if (array != NULL && array->kind == CC_IR_TYPE_SLICE) {
+        if (array->slice_const) {
+            error_at(ctx, target->span,
+                     "IR lowering: cannot write through const slice");
+            return false;
+        }
+        return lower_slice_assignment(ctx, node, var->slot, array);
+    }
     if (array == NULL || array->kind != CC_IR_TYPE_ARRAY) {
         error_at(ctx, target->span,
                  "IR lowering: indexed assignment needs fixed array");

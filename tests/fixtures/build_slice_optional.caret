@@ -1,0 +1,7 @@
+fn wrap(value: ?[]const i32) -> ?[]const i32 { return value; }
+fn main() -> i32 {
+    let data = [20, 22];
+    let optional = wrap(some(slice(data)));
+    let absent: ?[]const i32 = none;
+    return data[0] + data[1];
+}

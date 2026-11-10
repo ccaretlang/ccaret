@@ -1,0 +1,10 @@
+fn amount(flag: bool) -> i32 {
+    if flag { return 22; }
+    return 0;
+}
+fn main() -> i32 {
+    var data = [20, 0];
+    let view = slice(data);
+    view[1] += amount(true || false);
+    return view[0] + view[1];
+}

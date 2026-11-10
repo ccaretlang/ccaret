@@ -1,0 +1,12 @@
+fn increment(view: []i32, amount: i32) {
+    view[1] += amount;
+}
+
+fn identity(view: []i32) -> []i32 { return view; }
+
+fn main() -> i32 {
+    var array: [2]i32 = [20, 0];
+    let view = identity(slice(array));
+    increment(view, 22);
+    return array[0] + array[1];
+}
