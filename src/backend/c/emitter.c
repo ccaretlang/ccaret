@@ -34,6 +34,18 @@ static void emit_type_definitions(FILE *out, const CcIrModule *module)
                     type->id);
             continue;
         }
+        if (type->kind == CC_IR_TYPE_ENUM) {
+            fputs("typedef struct {\n  uint32_t tag;\n"
+                  "  union {\n    uint8_t _unit;\n", out);
+            for (uint32_t m = 0; m < type->count; m++) {
+                if (type->members[m] == CC_IR_VOID) continue;
+                fputs("    ", out);
+                emit_c_type(out, type->members[m]);
+                fprintf(out, " f%u;\n", m);
+            }
+            fprintf(out, "  } data;\n} cc_t_%u;\n\n", type->id);
+            continue;
+        }
         fputs("typedef struct {\n", out);
         if (type->kind == CC_IR_TYPE_OPTIONAL) {
             fputs("  bool has;\n  ", out);
@@ -92,6 +104,9 @@ static void emit_instruction(FILE *out, const CcIrInstruction *i)
 {
     if (i->op == CC_IR_OPTIONAL_UNWRAP)
         fprintf(out, "  if (!r%u.has) abort();\n", i->lhs);
+    if (i->op == CC_IR_ENUM_GET)
+        fprintf(out, "  if (r%u.tag != UINT32_C(%u)) abort();\n",
+                i->lhs, i->slot);
     if (i->result != CC_IR_NONE)
         fprintf(out, "  r%u = ", i->result);
     else fputs("  ", out);
@@ -217,6 +232,21 @@ static void emit_instruction(FILE *out, const CcIrInstruction *i)
         break;
     case CC_IR_OPTIONAL_UNWRAP:
         fprintf(out, "r%u.value", i->lhs);
+        break;
+    case CC_IR_MAKE_ENUM:
+        if (i->lhs == CC_IR_NONE)
+            fprintf(out, "(cc_t_%u){ .tag = UINT32_C(%u) }",
+                    i->type, i->slot);
+        else
+            fprintf(out,
+                    "(cc_t_%u){ .tag = UINT32_C(%u), .data.f%u = r%u }",
+                    i->type, i->slot, i->slot, i->lhs);
+        break;
+    case CC_IR_ENUM_IS:
+        fprintf(out, "(r%u.tag == UINT32_C(%u))", i->lhs, i->slot);
+        break;
+    case CC_IR_ENUM_GET:
+        fprintf(out, "r%u.data.f%u", i->lhs, i->slot);
         break;
     case CC_IR_MAKE_ARRAY:
         fprintf(out, "(cc_t_%u){", i->type);

@@ -17,6 +17,9 @@ function_decl = "unsafe"?, "fn", IDENTIFIER, generic_params?,
 struct_decl   = "struct", IDENTIFIER, "{",
                 (IDENTIFIER, ":", type, (",", IDENTIFIER, ":", type)*,
                 ","?)?, "}" ;
+enum_decl     = "enum", IDENTIFIER, "{",
+                (enum_variant, (",", enum_variant)*, ","?)?, "}" ;
+enum_variant  = IDENTIFIER, ("(", type, ")")? ;
 type_decl     = "type", IDENTIFIER, "=", type, ";" ;
 block         = "{", statement*, expression?, "}" ;
 ```
@@ -24,8 +27,9 @@ block         = "{", statement*, expression?, "}" ;
 The executable bootstrap subset allows `module path;` followed by
 `import path;` or `import path as alias;`. A module header is required
 for imports, and imported names are qualified through the alias:
-`alias.function(...)`, `alias.Struct` or
-`alias.Struct { field: expression }`. For backward compatibility,
+`alias.function(...)`, `alias.Struct`,
+`alias.Struct { field: expression }` or `alias.Enum.Variant(...)`.
+For backward compatibility,
 single-file programs may still omit the module header. Module paths
 map to one file per module; see [MODULES.md](MODULES.md).
 
@@ -37,7 +41,7 @@ Statements, expressions, patterns, types, generics and attributes need a full gr
 - `expr = expr;`, compound assignments, expression statements.
 - `return expr;`, `return;`, `break;`, `continue;`.
 - `if`, `while`, `for name in range`, `loop`, `match`, nested blocks.
-- The executable optional-only `match` is a **statement** with a block body
+- The executable optional/enum `match` is a **statement** with a block body
   per arm; it has no trailing semicolon. Arm order is unconstrained, arms
   are comma-separated with an optional final comma. See the rules below.
 - In the executable subset, `unsafe { statement* }` is a scoped statement
@@ -87,12 +91,12 @@ if value.has { return value.value; }
 return 0;
 ```
 
-The executable optional-only match statement has this syntax:
+The executable optional match statement has this syntax:
 
 ```ebnf
 optional_match = "match", expression, "{",
-                 (match_arm, (",", match_arm)*, ","?)?, "}" ;
-match_arm      = ("some", "(", binding_pattern, ")" | "none"),
+                 (optional_arm, (",", optional_arm)*, ","?)?, "}" ;
+optional_arm   = ("some", "(", binding_pattern, ")" | "none"),
                  "=>", "{", statement*, "}" ;
 ```
 
@@ -113,11 +117,57 @@ visible only within the `some` arm; the `none` arm has no payload.
 The scrutinee evaluates exactly once. Nested optional matches work,
 and a match with two returning arms satisfies the return-path check.
 
-`match` is not yet an expression. Enum variants, wildcards, guards,
-arbitrary nested variant patterns and `Result` matching remain future
-work. These member names are **bootstrap spellings**, not frozen syntax.
+`match` is not yet an expression. Enum matching is described below;
+wildcards, guards, arbitrary nested variant patterns and `Result`
+matching remain future work. These member names are **bootstrap
+spellings**, not frozen syntax.
 There is no implicit optional-to-value conversion or optional chaining;
 `.value` is still checked at runtime even following a `.has` test.
+
+## Tagged enum declarations and exhaustive matching (bootstrap subset)
+
+An enum has a nominal name and at least one distinct variant. Each variant
+is either a unit variant or carries **one typed payload**. A tuple can be
+used for a multi-field payload. Variants use the enum name as a qualifier:
+`Status.Empty`, `Status.Value(42)`, or `Packet.Pair((20, 22))`.
+A payload-bearing variant requires exactly one argument; `Empty()` is
+not a unit constructor. No implicit enum conversion exists.
+
+```ebnf
+enum_match    = "match", expression, "{",
+                (enum_arm, (",", enum_arm)*, ","?)?, "}" ;
+enum_arm      = enum_name, ".", IDENTIFIER,
+                ("(", binding_pattern, ")")?,
+                "=>", "{", statement*, "}" ;
+enum_name     = IDENTIFIER, (".", IDENTIFIER)? ;
+```
+
+```caret
+enum Message { Quit, Count(i32), Pair((i32, i32)) }
+
+fn describe(message: Message) -> i32 {
+    match message {
+        Message.Quit => { return 0; },
+        Message.Count(n) => { return n; },
+        Message.Pair((a, b)) => { return a + b; },
+    }
+}
+```
+
+Exactly one arm for **every declared variant** is required, regardless of
+arm order. Unknown, duplicated, missing or wrong-enum variants are errors.
+A unit arm cannot bind a payload; a payload arm must provide a binding
+pattern, which can destructure nested tuples. Bindings are immutable and
+visible only within that arm. The scrutinee executes once, nested matches
+are supported, and all-returning exhaustive arms satisfy return checking.
+
+For imported enums, use `alias.Enum` as a type and
+`alias.Enum.Variant` in constructors and arms. Enums are copied by value;
+enum values need not be matched immediately. The executable subset has
+no explicit discriminant values, per-variant visibility, generic enum
+parameters, field-style variant payloads, wildcard arms, guards,
+match expressions or nested enum variant *patterns*. The parser allows
+an empty arm list syntactically; semantic exhaustiveness rejects it.
 
 ## Fixed-array literals
 
@@ -169,8 +219,9 @@ coercion, and lifetime/alias checks are not implemented.
 
 Top-level `struct Name { first: T, second: U, }` declares a nominal
 value type. Declarations may appear before or after the functions
-that reference them; `pub struct` is accepted, although visibility
-between modules is not yet enforced. Construct a value with named
+that reference them; `pub struct` exports a nominal type to imports,
+whose fields must all be `pub` in the bootstrap module subset.
+Construct a value with named
 fields, e.g. `Name { second: x, first: y }`. Field order in a literal
 does not affect field-to-value binding, but source expressions are
 evaluated left-to-right exactly once. Every declared field must be

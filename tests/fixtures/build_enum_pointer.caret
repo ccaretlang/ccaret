@@ -1,0 +1,8 @@
+enum Holder { Address(*i32), Empty }
+fn main() -> i32 {
+    var value = 42;
+    match Holder.Address(&value) {
+        Holder.Address(pointer) => { unsafe { return *pointer; } },
+        Holder.Empty => { return 0; },
+    }
+}

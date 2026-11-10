@@ -1,0 +1,2 @@
+enum Status { Fine, Fine }
+fn main() -> i32 { return 42; }

@@ -1,0 +1,4 @@
+enum First { Value(i32) }
+enum Second { Value(i32) }
+fn f(x: First) -> i32 { return 42; }
+fn main() -> i32 { return f(Second.Value(1)); }

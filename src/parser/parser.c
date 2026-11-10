@@ -1438,22 +1438,44 @@ static CcMatch *parse_match(CcParser *parser)
     CcMatchArm **link = &first;
     while (!parser->failed && parser->current.kind != CC_TOKEN_RBRACE) {
         if (parser->current.kind != CC_TOKEN_KW_SOME &&
-            parser->current.kind != CC_TOKEN_KW_NONE) {
-            report_error(parser, "expected `some` or `none` match arm");
+            parser->current.kind != CC_TOKEN_KW_NONE &&
+            parser->current.kind != CC_TOKEN_IDENTIFIER) {
+            report_error(parser, "expected `some`, `none` or enum match arm");
             return NULL;
         }
         CcToken variant = parser->current;
         bool is_some = variant.kind == CC_TOKEN_KW_SOME;
+        bool is_enum = variant.kind == CC_TOKEN_IDENTIFIER;
+        CcSourceSpan enum_type = { CC_FILE_ID_INVALID, 0, 0 };
+        CcSourceSpan variant_name = { CC_FILE_ID_INVALID, 0, 0 };
         advance(parser);
-        CcPattern *payload = NULL;
-        if (is_some) {
-            if (!expect(parser, CC_TOKEN_LPAREN,
-                        "expected `(` after `some` match arm", NULL))
+        if (is_enum) {
+            enum_type = variant.span;
+            if (!expect(parser, CC_TOKEN_DOT,
+                        "expected `.` after enum type in match arm", NULL))
                 return NULL;
+            CcToken member;
+            if (!expect(parser, CC_TOKEN_IDENTIFIER,
+                        "expected enum variant name", &member)) return NULL;
+            if (accept(parser, CC_TOKEN_DOT, NULL)) {
+                enum_type.end = member.span.end;
+                if (!expect(parser, CC_TOKEN_IDENTIFIER,
+                            "expected enum variant name", &member)) return NULL;
+            }
+            variant_name = member.span;
+        }
+        CcPattern *payload = NULL;
+        if (is_some || (is_enum && parser->current.kind == CC_TOKEN_LPAREN)) {
+            if (is_some && !expect(parser, CC_TOKEN_LPAREN,
+                                  "expected `(` after `some` match arm", NULL))
+                return NULL;
+            if (is_enum) advance(parser);
             payload = parse_pattern(parser);
             if (parser->failed || payload == NULL) return NULL;
             if (!expect(parser, CC_TOKEN_RPAREN,
-                        "expected `)` after `some` match pattern", NULL))
+                        is_some ? "expected `)` after `some` match pattern"
+                                : "expected `)` after match binding pattern",
+                        NULL))
                 return NULL;
         }
         if (!expect(parser, CC_TOKEN_FAT_ARROW,
@@ -1466,6 +1488,8 @@ static CcMatch *parse_match(CcParser *parser)
         arm->span = variant.span;
         arm->span.end = body->span.end;
         arm->is_some = is_some;
+        arm->enum_type = enum_type;
+        arm->variant = variant_name;
         arm->payload = payload;
         arm->body = body;
         arm->next = NULL;
@@ -1722,6 +1746,7 @@ static CcFunctionDeclaration *parse_function(CcParser *parser)
     function->body = body;
     function->next = NULL;
     function->struct_decl = NULL;
+    function->enum_decl = NULL;
 
     return function;
 }
@@ -1784,7 +1809,66 @@ static CcFunctionDeclaration *parse_struct(CcParser *parser)
     item->return_type = NULL;
     item->body = NULL;
     item->struct_decl = decl;
+    item->enum_decl = NULL;
     item->next = NULL;
+    return item;
+}
+
+static CcFunctionDeclaration *parse_enum(CcParser *parser)
+{
+    uint32_t start = parser->current.span.start;
+    bool is_public = accept(parser, CC_TOKEN_KW_PUB, NULL);
+    CcToken keyword, name, closing;
+    if (!expect(parser, CC_TOKEN_KW_ENUM,
+                "expected enum declaration", &keyword) ||
+        !expect(parser, CC_TOKEN_IDENTIFIER, "expected enum name", &name) ||
+        !expect(parser, CC_TOKEN_LBRACE,
+                "expected `{` after enum name", NULL)) return NULL;
+
+    CcEnumVariant *first = NULL;
+    CcEnumVariant **link = &first;
+    while (parser->current.kind != CC_TOKEN_RBRACE) {
+        CcToken member;
+        if (!expect(parser, CC_TOKEN_IDENTIFIER,
+                    "expected enum variant name", &member)) return NULL;
+        CcType *payload = NULL;
+        if (accept(parser, CC_TOKEN_LPAREN, NULL)) {
+            payload = parse_type(parser);
+            if (parser->failed || payload == NULL ||
+                !expect(parser, CC_TOKEN_RPAREN,
+                        "expected `)` after variant payload type", NULL))
+                return NULL;
+        }
+        CcEnumVariant *node = allocate(parser, sizeof(*node));
+        if (node == NULL) return NULL;
+        node->name = member.span;
+        node->payload = payload;
+        node->next = NULL;
+        *link = node;
+        link = &node->next;
+        if (!accept(parser, CC_TOKEN_COMMA, NULL)) break;
+        if (parser->current.kind == CC_TOKEN_RBRACE) break;
+    }
+    if (!expect(parser, CC_TOKEN_RBRACE,
+                "expected `}` after enum declaration", &closing)) return NULL;
+    CcEnumDeclaration *decl = allocate(parser, sizeof(*decl));
+    CcFunctionDeclaration *item = allocate(parser, sizeof(*item));
+    if (decl == NULL || item == NULL) return NULL;
+    decl->span = keyword.span;
+    decl->span.start = start;
+    decl->span.end = closing.span.end;
+    decl->name = name.span;
+    decl->is_public = is_public;
+    decl->variants = first;
+    item->span = decl->span;
+    item->name = name.span;
+    item->is_public = is_public;
+    item->parameters = NULL;
+    item->return_type = NULL;
+    item->body = NULL;
+    item->next = NULL;
+    item->struct_decl = NULL;
+    item->enum_decl = decl;
     return item;
 }
 
@@ -1895,8 +1979,9 @@ CcFunctionDeclaration *cc_parser_parse_program(CcParser *parser)
         }
         if (parser->current.kind != CC_TOKEN_KW_FN &&
             parser->current.kind != CC_TOKEN_KW_STRUCT &&
+            parser->current.kind != CC_TOKEN_KW_ENUM &&
             parser->current.kind != CC_TOKEN_KW_PUB) {
-            report_error(parser, "expected function or struct declaration");
+            report_error(parser, "expected function, struct or enum declaration");
             break;
         }
 
@@ -1907,7 +1992,8 @@ CcFunctionDeclaration *cc_parser_parse_program(CcParser *parser)
         }
         CcFunctionDeclaration *function =
             kind == CC_TOKEN_KW_STRUCT ? parse_struct(parser)
-                                       : parse_function(parser);
+            : kind == CC_TOKEN_KW_ENUM ? parse_enum(parser)
+            : parse_function(parser);
 
         if (parser->failed || function == NULL) break;
 

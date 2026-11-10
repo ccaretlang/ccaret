@@ -1,0 +1,6 @@
+enum Single { Only }
+fn main() -> i32 {
+    match Single.Only {
+        Single.Only => { return 42; },
+    }
+}

@@ -66,8 +66,12 @@ The caller must pass a nonzero divisor. Division overflow and trap rules are in 
   checked `.value` extraction; accessing `.value` on `none` traps.
   Exhaustive `match` statements distinguish `some(pattern)` and `none`;
   both arms are mandatory and the scrutinee runs exactly once. The
-  immutable `some` binding is scoped to that arm. Enum and `Result`
-  matching, guards, wildcard arms and match expressions remain planned.
+  immutable `some` binding is scoped to that arm. Nominal tagged
+  `enum` values use `Enum.Unit` / `Enum.Payload(value)` constructors,
+  and exhaustive `Enum.Variant(pattern)` statement arms, one per variant.
+  Enum payload bindings are immutable and arm-local; scrutinees execute
+  once and payload extraction checks its tag. Generic `Result` matching,
+  guards, wildcard arms and match expressions remain planned.
 - A fatal trap does not unwind the stack and does not guarantee that deferred cleanup runs.
 - Release optimization settings must not change these source-level rules.
 

@@ -48,6 +48,9 @@ static const char *op_name(CcIrOpcode op)
     case CC_IR_MAKE_NONE: return "none";
     case CC_IR_OPTIONAL_HAS: return "optional.has";
     case CC_IR_OPTIONAL_UNWRAP: return "optional.unwrap";
+    case CC_IR_MAKE_ENUM: return "enum.make";
+    case CC_IR_ENUM_IS: return "enum.is";
+    case CC_IR_ENUM_GET: return "enum.get";
     case CC_IR_MAKE_ARRAY: return "array";
     case CC_IR_GET_ARRAY: return "array.get";
     case CC_IR_STORE_INDEX: return "array.store";
@@ -86,6 +89,22 @@ bool cc_ir_print(FILE *out, const CcIrModule *module)
             fputs("[]", out);
             if (type->slice_const) fputs("const ", out);
             print_type(out, type->inner);
+        } else if (type->kind == CC_IR_TYPE_ENUM) {
+            CcSourceSpan name = type->name;
+            fprintf(out, "enum %.*s {", (int)(name.end - name.start),
+                    module->file->bytes + name.start);
+            for (uint32_t m = 0; m < type->count; m++) {
+                CcSourceSpan variant = type->field_names[m];
+                fprintf(out, "%s%.*s", m == 0 ? " " : ", ",
+                        (int)(variant.end - variant.start),
+                        module->file->bytes + variant.start);
+                if (type->members[m] != CC_IR_VOID) {
+                    fputc('(', out);
+                    print_type(out, type->members[m]);
+                    fputc(')', out);
+                }
+            }
+            fputs(" }", out);
         } else if (type->kind == CC_IR_TYPE_STRUCT) {
             CcSourceSpan name = type->name;
             fprintf(out, "struct %.*s {", (int)(name.end - name.start),
@@ -193,6 +212,14 @@ bool cc_ir_print(FILE *out, const CcIrModule *module)
                 case CC_IR_OPTIONAL_HAS:
                 case CC_IR_OPTIONAL_UNWRAP:
                     fprintf(out, " %%%u", i->lhs);
+                    break;
+                case CC_IR_MAKE_ENUM:
+                    fprintf(out, " variant%u", i->slot);
+                    if (i->lhs != CC_IR_NONE) fprintf(out, "(%%%u)", i->lhs);
+                    break;
+                case CC_IR_ENUM_IS:
+                case CC_IR_ENUM_GET:
+                    fprintf(out, " %%%u variant%u", i->lhs, i->slot);
                     break;
                 case CC_IR_MAKE_ARRAY:
                 case CC_IR_MAKE_STRUCT:

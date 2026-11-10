@@ -1,0 +1,8 @@
+enum Pair { Data(i32), Empty }
+fn main() -> i32 {
+    let value = 100;
+    match Pair.Data(42) {
+        Pair.Data(value) => { return value; },
+        Pair.Empty => { return 0; },
+    }
+}

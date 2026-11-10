@@ -49,9 +49,39 @@ fn extract(item: ?i32) -> i32 {
 Exactly one arm of each variant is required. A duplicate or missing arm,
 non-optional scrutinee, incompatible tuple destructuring or use of a
 `some` binder outside its arm is a compile-time error. The scrutinee
-evaluates once; there is no payload read on the `none` path. Only
-optional statement matching is implemented so far, not enum/`Result`
-matching or `match` expressions.
+evaluates once; there is no payload read on the `none` path.
+Tagged enum statements are also implemented; generic `Result`,
+`try` and `match` expressions are not.
+
+## User-defined tagged enums
+
+The executable subset allows nominal enums with unit and typed-payload
+variants and exhaustive statement matching:
+
+```caret
+enum ParseError { Empty, Invalid(i32) }
+enum Outcome { Success(i32), Failure(ParseError) }
+
+fn result() -> Outcome { return Outcome.Success(42); }
+
+fn main() -> i32 {
+    match result() {
+        Outcome.Success(n) => { return n; },
+        Outcome.Failure(error) => {
+            match error {
+                ParseError.Empty => { return 0; },
+                ParseError.Invalid(code) => { return code; },
+            }
+        },
+    }
+}
+```
+
+Each variant must be covered once, payloads are immutable and arm-local,
+and the scrutinee evaluates once. The C17 implementation checks the
+discriminant before reading any payload. Tagged user enums do not yet
+provide automatic error propagation, must-use checking, a stable C ABI,
+or the generic `Result<T,E>` intrinsic.
 
 ## `Result<T,E>`: success or failure
 
@@ -89,7 +119,10 @@ let value = match parse_number(data) {
 };
 ```
 
-A match on an enum or `Result` must cover every variant or use an explicit wildcard. Ignoring a result without an explicit discard should produce a diagnostic. Exact must-use enforcement and the `_ = value` syntax are still open.
+A bootstrap `match` on a nominal enum must cover each variant exactly
+once. The planned `Result` syntax may eventually allow explicit wildcard
+arms; neither wildcard matching nor ignored-result checking is implemented.
+Exact must-use enforcement and the `_ = value` syntax remain open.
 
 ## Open questions
 

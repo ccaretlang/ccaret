@@ -299,6 +299,34 @@ static bool validate_instruction(const CcIrModule *module,
             return fail(error, i->span, "IR verifier: invalid optional access");
         break;
     }
+    case CC_IR_MAKE_ENUM: {
+        const CcIrTypeInfo *enumeration = cc_ir_type_info(module, i->type);
+        if (enumeration == NULL || enumeration->kind != CC_IR_TYPE_ENUM ||
+            i->slot >= enumeration->count)
+            return fail(error, i->span,
+                        "IR verifier: invalid enum constructor");
+        CcIrType member = enumeration->members[i->slot];
+        if (member == CC_IR_VOID ? i->lhs != CC_IR_NONE
+            : !USE(i->lhs, member))
+            return fail(error, i->span,
+                        "IR verifier: invalid enum constructor");
+        break;
+    }
+    case CC_IR_ENUM_IS:
+    case CC_IR_ENUM_GET: {
+        if (i->lhs >= register_count || !defined[i->lhs])
+            return fail(error, i->span, "IR verifier: invalid enum access");
+        CcIrType source = types[i->lhs];
+        const CcIrTypeInfo *enumeration = cc_ir_type_info(module, source);
+        if (enumeration == NULL || enumeration->kind != CC_IR_TYPE_ENUM ||
+            i->slot >= enumeration->count ||
+            i->type != (i->op == CC_IR_ENUM_IS ? CC_IR_BOOL
+                                               : enumeration->members[i->slot]) ||
+            (i->op == CC_IR_ENUM_GET && i->type == CC_IR_VOID) ||
+            !USE(i->lhs, source))
+            return fail(error, i->span, "IR verifier: invalid enum access");
+        break;
+    }
     case CC_IR_MAKE_ARRAY: {
         const CcIrTypeInfo *array = cc_ir_type_info(module, i->type);
         if (array == NULL || array->kind != CC_IR_TYPE_ARRAY ||
@@ -403,6 +431,7 @@ bool cc_ir_verify(const CcIrModule *module, CcIrError *error)
              type->kind != CC_IR_TYPE_OPTIONAL &&
              type->kind != CC_IR_TYPE_ARRAY &&
              type->kind != CC_IR_TYPE_STRUCT &&
+             type->kind != CC_IR_TYPE_ENUM &&
              type->kind != CC_IR_TYPE_POINTER &&
              type->kind != CC_IR_TYPE_SLICE))
             return fail(error, error->span, "IR verifier: invalid type table");
@@ -458,6 +487,25 @@ bool cc_ir_verify(const CcIrModule *module, CcIrError *error)
                         return fail(error, error->span,
                                     "IR verifier: duplicate struct field");
             }
+        } else if (type->kind == CC_IR_TYPE_ENUM) {
+            if (type->inner != CC_IR_VOID || type->pointer_const ||
+                type->slice_const || !valid_name(module, type->name) ||
+                type->count == 0 || type->count > 65536U ||
+                type->members == NULL || type->field_names == NULL)
+                return fail(error, error->span,
+                            "IR verifier: invalid enum type");
+            for (uint32_t i = 0; i < type->count; i++) {
+                if ((type->members[i] >= type->id &&
+                     type->members[i] != CC_IR_USIZE) ||
+                    !valid_name(module, type->field_names[i]))
+                    return fail(error, error->span,
+                                "IR verifier: invalid enum variant type");
+                for (uint32_t j = 0; j < i; j++)
+                    if (same_name(module, type->field_names[j],
+                                  type->field_names[i]))
+                        return fail(error, error->span,
+                                    "IR verifier: duplicate enum variant");
+            }
         } else {
             if (type->inner != CC_IR_VOID || type->field_names != NULL ||
                 (type->count != 0 && type->members == NULL))
@@ -490,7 +538,8 @@ bool cc_ir_verify(const CcIrModule *module, CcIrError *error)
                      type->count == other->count))
                     return fail(error, error->span,
                                 "IR verifier: duplicate composite type");
-            } else if (type->kind == CC_IR_TYPE_STRUCT) {
+            } else if (type->kind == CC_IR_TYPE_STRUCT ||
+                       type->kind == CC_IR_TYPE_ENUM) {
                 if (same_name(module, type->name, other->name))
                     return fail(error, error->span,
                                 "IR verifier: duplicate composite type");

@@ -1,0 +1,7 @@
+enum Result { Value((i32, i32)), Empty }
+fn main() -> i32 {
+    match Result.Value((20, 22)) {
+        Result.Value((a, b, c)) => { return a; },
+        Result.Empty => { return 0; },
+    }
+}

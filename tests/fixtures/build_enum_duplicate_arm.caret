@@ -1,0 +1,8 @@
+enum Status { Good(i32), Bad }
+fn main() -> i32 {
+    match Status.Good(42) {
+        Status.Good(n) => { return n; },
+        Status.Bad => { return 0; },
+        Status.Good(other) => { return other; },
+    }
+}

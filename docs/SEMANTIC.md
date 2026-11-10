@@ -16,7 +16,7 @@ are arena-allocated; it does not yet annotate the AST with persistent
 ## Implemented checks
 
 - Resolve built-in `void`, `bool`, signed/unsigned integer types,
-  `isize`/`usize`, `f32`/`f64`, and declared nominal structs;
+  `isize`/`usize`, `f32`/`f64`, and declared nominal structs/enums;
   reject unknown type names.
 - Resolve pointers, slices, optionals, tuples, and fixed arrays, preserving
   the pointee/element `const` qualifier. Array lengths are nonnegative,
@@ -29,11 +29,19 @@ are arena-allocated; it does not yet annotate the AST with persistent
   duplicate type/field names, reject recursive value types and void fields,
   require every struct literal field exactly once, and check field reads,
   assignments and nominal type compatibility.
+- Register tagged enums and their variant names independent of declaration
+  order; require at least one variant, reject duplicates, recursive
+  by-value enum/struct cycles and `void` payloads. Each variant has zero
+  or one payload with an explicit type, including tuples and nested
+  supported aggregates. Check type-correct enum constructors
+  (`Enum.Empty` / `Enum.Payload(value)`), nominal type compatibility,
+  by-value parameter/return propagation and invalid constructor arity.
 - In modular files, enforce acyclic import graphs, namespace aliases and
-  `pub` visibility for imported functions/structs. Reject missing modules,
-  path/name mismatches, private uses and public interfaces exposing
-  private struct types. The initial imported-struct subset requires all
-  of its fields to be `pub`.
+  `pub` visibility for imported functions/structs/enums. Reject missing
+  modules, path/name mismatches, private uses and public interfaces exposing
+  private nominal types. The initial imported-struct subset requires all
+  of its fields to be `pub`; imported public enum variants are available
+  as a group, with no per-variant `pub` syntax.
 - Track lexical scopes and the mutability of `let`/`var` bindings.
   Resolve identifiers, prevent duplicate bindings in the same scope, reject
   use before declaration, and check assignment type and mutability.
@@ -78,14 +86,22 @@ are arena-allocated; it does not yet annotate the AST with persistent
   The scrutinee is evaluated once; checking each body preserves normal
   loop nesting, assignment and return rules. Imported references inside
   arms undergo the same module-linker namespace resolution.
+- Type-check exhaustive enum `match` statements: the scrutinee must have
+  a nominal enum type, every declared variant must appear **exactly once**
+  and each arm must name that enum and provide a binder if and only if
+  the variant has a payload. Bindings are immutable and arm-local; tuple
+  destructuring obeys existing pattern arity/type checks. Unknown
+  variants, duplicated arms, missing arms or mismatched enum names fail
+  before IR lowering. Import-qualified enum arms are rewritten to the
+  canonical linked name; the scrutinee is evaluated exactly once.
 - Conservatively check that functions returning a non-`void` type return
   along every path made of `return`, complete `if`/`else` chains and
-  exhaustive optional matches whose two arms return.
+  exhaustive optional/enum matches whose arms all return.
   Nontrivial loop termination is not yet proven.
 
 ## Limits of this first pass
 
-- Not yet supported: enums, unions, generics, C ABI aliases,
+- Not yet supported: unions, generic enums/generics, C ABI aliases,
   type aliases, and function values. The current module system uses one
   file per module, local root-relative imports and `pub` visibility.
   Opaque imported structs, selective field access and public C layouts
@@ -113,9 +129,11 @@ are arena-allocated; it does not yet annotate the AST with persistent
 - `none` requires an optional type context; result type inference is
   deliberately local, not global constraint solving.
 - Optional `.value` is always checked at runtime; there is no
-  compile-time proof/flow narrowing from `.has`, enum/`Result` match,
-  optional chaining or implicit unwrap. `match` is a statement only,
-  limited to the two variants of `?T`, without guards or wildcard arms.
+  compile-time proof/flow narrowing from `.has`, optional chaining
+  or implicit unwrap. `match` is a statement only, supporting
+  exhaustive optional and nominal enum arms, without guards, wildcard
+  arms, general nested variant patterns, match expressions or
+  `Result<T,E>` propagation.
 - Only the first semantic error is reported. Definite assignment across all
   paths, exhaustive control-flow analysis, liveness, constant propagation,
   and persistent typed IR are future work.

@@ -1,0 +1,2 @@
+enum Invalid { Value(void), Empty }
+fn main() -> i32 { return 42; }

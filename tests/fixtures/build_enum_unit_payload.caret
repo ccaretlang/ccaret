@@ -1,0 +1,7 @@
+enum Holder { Wrapped(()), Empty }
+fn main() -> i32 {
+    match Holder.Wrapped(()) {
+        Holder.Empty => { return 0; },
+        Holder.Wrapped(()) => { return 42; },
+    }
+}

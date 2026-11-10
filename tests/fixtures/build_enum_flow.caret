@@ -1,0 +1,9 @@
+enum Event { Add(i32), Ignore }
+fn main() -> i32 {
+    var result = 20;
+    match Event.Add(22) {
+        Event.Ignore => { result = 0; },
+        Event.Add(value) => { result += value; },
+    }
+    return result;
+}

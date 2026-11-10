@@ -1,0 +1,15 @@
+enum State { Number(i32), Done }
+fn change(item: State) -> State {
+    match item {
+        State.Done => { return State.Done; },
+        State.Number(value) => { return State.Number(value + 2); },
+    }
+}
+fn main() -> i32 {
+    var value = State.Number(40);
+    value = change(value);
+    match value {
+        State.Number(n) => { return n; },
+        State.Done => { return 0; },
+    }
+}

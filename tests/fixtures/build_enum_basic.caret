@@ -1,0 +1,16 @@
+enum Message {
+    Empty,
+    Number(i32),
+}
+
+fn extract(msg: Message) -> i32 {
+    match msg {
+        Message.Empty => { return 0; },
+        Message.Number(n) => { return n; },
+    }
+}
+
+fn main() -> i32 {
+    let item = Message.Number(42);
+    return extract(item);
+}

@@ -32,6 +32,97 @@ for name in main names scoping; do
     run_exit 42 "$out/optimized_$name"
 done
 
+# Named enum types, constructors, variant arms and imported calls all need
+# AST-based module rewriting, including nested tuple payloads.
+mkdir -p "$out/enum_case/app" "$out/enum_case/lib"
+cat > "$out/enum_case/app/main.caret" <<'EOF'
+module app.main;
+import lib.event as evt;
+import lib.math as math;
+fn main() -> i32 {
+    let direct: evt.Event = evt.Event.Payload((20, math.delta()));
+    match direct {
+        evt.Event.Empty => { return 0; },
+        evt.Event.Payload((a, b)) => { return a + b; },
+    }
+}
+EOF
+cat > "$out/enum_case/lib/event.caret" <<'EOF'
+module lib.event;
+pub enum Event { Payload((i32, i32)), Empty }
+pub fn produce() -> Event { return Event.Payload((20, 0)); }
+EOF
+cat > "$out/enum_case/lib/math.caret" <<'EOF'
+module lib.math;
+pub fn delta() -> i32 { return 22; }
+EOF
+"$binary" check "$out/enum_case/app/main.caret"
+"$binary" emit-ir "$out/enum_case/app/main.caret" -o "$out/enum_case.ir"
+"$binary" build "$out/enum_case/app/main.caret" -o "$out/enum_case/bin"
+run_exit 42 "$out/enum_case/bin"
+gcc -std=c17 -O2 -Wall -Wextra -Wpedantic -Werror \
+    "$out/enum_case/bin.c" -o "$out/enum_case/optimized"
+run_exit 42 "$out/enum_case/optimized"
+grep -q 'enum cc_m' "$out/enum_case.ir"
+grep -q 'enum.make' "$out/enum_case.ir"
+grep -q 'enum.is' "$out/enum_case.ir"
+grep -q 'enum.get' "$out/enum_case.ir"
+
+# Module alias shadowed by a payload binder; imported constructor and
+# imported enum-returning function must both resolve independently.
+cat > "$out/enum_case/app/second.caret" <<'EOF'
+module app.second;
+import lib.event as evt;
+import lib.math as math;
+fn main() -> i32 {
+    match evt.produce() {
+        evt.Event.Payload((evt, ignored)) => {
+            return evt + ignored + math.delta();
+        },
+        evt.Event.Empty => { return 0; },
+    }
+}
+EOF
+"$binary" check "$out/enum_case/app/second.caret"
+"$binary" emit-c "$out/enum_case/app/second.caret" \
+    -o "$out/enum_case/return.c"
+gcc -std=c17 -O2 -Wall -Wextra -Wpedantic -Werror \
+    "$out/enum_case/return.c" -o "$out/enum_case/return"
+run_exit 42 "$out/enum_case/return"
+
+# A public signature cannot expose an imported/private enum or private
+# aggregate payload from a public enum.
+mkdir -p "$out/enum_private/app" "$out/enum_private/lib"
+cat > "$out/enum_private/app/main.caret" <<'EOF'
+module app.main;
+import lib.secret as secret;
+fn main() -> i32 { return 42; }
+EOF
+cat > "$out/enum_private/lib/secret.caret" <<'EOF'
+module lib.secret;
+enum Hidden { Only }
+pub fn produce() -> Hidden { return Hidden.Only; }
+EOF
+if "$binary" check "$out/enum_private/app/main.caret" \
+    > /dev/null 2> "$out/enum_private.err"; then
+    echo "modules: private enum escaped a public signature" >&2
+    exit 1
+fi
+grep -q 'public signature exposes a private enum type' \
+    "$out/enum_private.err"
+cat > "$out/enum_private/lib/secret.caret" <<'EOF'
+module lib.secret;
+struct Private { value: i32 }
+pub enum Exposed { Has(Private), Empty }
+EOF
+if "$binary" check "$out/enum_private/app/main.caret" \
+    > /dev/null 2> "$out/enum_private.err"; then
+    echo "modules: private struct escaped a public enum" >&2
+    exit 1
+fi
+grep -q 'public signature exposes a private struct type' \
+    "$out/enum_private.err"
+
 # Imported calls inside unsafe blocks must be rewritten by the linker.
 mkdir -p "$out/unsafe_case/app" "$out/unsafe_case/lib"
 cat > "$out/unsafe_case/app/main.caret" <<'EOF'

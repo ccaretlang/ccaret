@@ -204,11 +204,13 @@ static bool check_identifiers(Linker *ctx, Module *module)
     };
     for (const CcFunctionDeclaration *decl = module->program;
          decl != NULL; decl = decl->next) {
-        if (decl->struct_decl == NULL) continue;
+        if (decl->struct_decl == NULL && decl->enum_decl == NULL) continue;
         for (size_t i = 0; i < sizeof(builtins) / sizeof(builtins[0]); i++)
             if (span_equals(ctx, decl->name, builtins[i])) {
                 failure(ctx, decl->name,
-                        "struct name conflicts with builtin");
+                        decl->struct_decl != NULL
+                          ? "struct name conflicts with builtin"
+                          : "enum name conflicts with builtin");
                 return false;
             }
     }
@@ -219,6 +221,7 @@ static char *mangle(Linker *ctx, const Module *module,
                     const CcFunctionDeclaration *decl)
 {
     if (module == ctx->entry && decl->struct_decl == NULL &&
+        decl->enum_decl == NULL &&
         span_equals(ctx, decl->name, "main")) {
         char *main_name = allocate(ctx, 5, decl->name);
         if (main_name != NULL) memcpy(main_name, "main", 5);
@@ -461,8 +464,10 @@ static char *rewrite_name(Visitor *visitor, CcSourceSpan span,
         failure(ctx, span, "imported declaration is private");
         return NULL;
     }
-    if ((expect_struct && decl->struct_decl == NULL) ||
-        (expect_function && decl->struct_decl != NULL)) {
+    if ((expect_struct && decl->struct_decl == NULL &&
+         decl->enum_decl == NULL) ||
+        (expect_function &&
+         (decl->struct_decl != NULL || decl->enum_decl != NULL))) {
         failure(ctx, span, "imported declaration kind mismatch");
         return NULL;
     }
@@ -536,6 +541,55 @@ static bool walk_type(Visitor *visitor, const CcType *type)
     return true;
 }
 
+/* In source syntax, a constructor is Enum.Variant or import.Enum.Variant.
+ * Rewrite just the enum type qualifier; the variant name stays unmangled.
+ * Check lexical locals first, so local x.field is not interpreted as enum. */
+static bool rewrite_enum_base(Visitor *visitor, const CcExpression *member,
+                              bool *handled)
+{
+    *handled = false;
+    if (member->kind != CC_AST_EXPRESSION_MEMBER) return true;
+    const CcExpression *owner = member->member.operand;
+    CcSourceSpan name;
+    if (owner->kind == CC_AST_EXPRESSION_IDENTIFIER) {
+        if (is_local(visitor, owner->identifier_name)) return true;
+        name = owner->identifier_name;
+    } else if (owner->kind == CC_AST_EXPRESSION_MEMBER &&
+               owner->member.operand->kind == CC_AST_EXPRESSION_IDENTIFIER) {
+        if (is_local(visitor,
+                     owner->member.operand->identifier_name)) return true;
+        char *alias = copy_text(visitor->linker,
+            owner->member.operand->identifier_name, false);
+        if (alias == NULL) return false;
+        if (find_import(visitor->module, alias) == NULL) return true;
+        name = owner->span;
+    } else return true;
+
+    char *written = rewrite_name(visitor, name, true, false);
+    if (visitor->linker->failed) return false;
+    if (written == NULL) return true;
+
+    /* Only rewrite enum constructors, not fields of a struct type. */
+    char *source_name = copy_text(visitor->linker, name, true);
+    if (source_name == NULL) return false;
+    char *dot = strchr(source_name, '.');
+    Module *module = visitor->module;
+    if (dot != NULL) {
+        *dot = '\0';
+        Import *import = find_import(module, source_name);
+        if (import == NULL) return true;
+        module = import->target;
+        source_name = dot + 1;
+    }
+    const CcFunctionDeclaration *decl =
+        find_symbol(visitor->linker, module, source_name);
+    if (decl == NULL || decl->enum_decl == NULL) return true;
+    if (!add_edit(visitor->linker, visitor->module, name, written))
+        return false;
+    *handled = true;
+    return true;
+}
+
 static bool walk_expr(Visitor *visitor, const CcExpression *expr)
 {
     if (expr == NULL) return true;
@@ -573,6 +627,8 @@ static bool walk_expr(Visitor *visitor, const CcExpression *expr)
     case CC_AST_EXPRESSION_CALL: {
         const CcExpression *callee = expr->call.callee;
         bool handled = false;
+        if (callee->kind == CC_AST_EXPRESSION_MEMBER &&
+            !rewrite_enum_base(visitor, callee, &handled)) return false;
         if (callee->kind == CC_AST_EXPRESSION_IDENTIFIER &&
             !is_local(visitor, callee->identifier_name)) {
             char *name = rewrite_name(visitor, callee->identifier_name,
@@ -584,7 +640,7 @@ static bool walk_expr(Visitor *visitor, const CcExpression *expr)
                     return false;
                 handled = true;
             }
-        } else if (callee->kind == CC_AST_EXPRESSION_MEMBER &&
+        } else if (!handled && callee->kind == CC_AST_EXPRESSION_MEMBER &&
                    callee->member.operand->kind ==
                        CC_AST_EXPRESSION_IDENTIFIER &&
                    !is_local(visitor,
@@ -612,7 +668,11 @@ static bool walk_expr(Visitor *visitor, const CcExpression *expr)
         return walk_expr(visitor, expr->index.operand) &&
                walk_expr(visitor, expr->index.index);
     case CC_AST_EXPRESSION_MEMBER:
-        return walk_expr(visitor, expr->member.operand);
+    {
+        bool handled = false;
+        if (!rewrite_enum_base(visitor, expr, &handled)) return false;
+        return handled || walk_expr(visitor, expr->member.operand);
+    }
     case CC_AST_EXPRESSION_TUPLE_MEMBER:
         return walk_expr(visitor, expr->tuple_member.operand);
     default: return true;
@@ -677,7 +737,15 @@ static bool walk_block(Visitor *visitor, const CcBlock *block)
             for (const CcMatchArm *arm = match->arms; arm != NULL;
                  arm = arm->next) {
                 Binding *before = visitor->locals;
-                if ((arm->is_some &&
+                if (arm->enum_type.file_id != CC_FILE_ID_INVALID) {
+                    char *name = rewrite_name(visitor, arm->enum_type, true,
+                                              false);
+                    if (visitor->linker->failed ||
+                        (name != NULL &&
+                         !add_edit(visitor->linker, visitor->module,
+                                   arm->enum_type, name))) goto failed;
+                }
+                if ((arm->payload != NULL &&
                      !bind_pattern(visitor, arm->payload)) ||
                     !walk_block(visitor, arm->body)) goto failed;
                 visitor->locals = before;
@@ -727,6 +795,10 @@ static bool prepare_module(Linker *ctx, Module *module)
             for (const CcStructField *field = decl->struct_decl->fields;
                  field != NULL; field = field->next)
                 if (!walk_type(&visitor, field->type)) return false;
+        } else if (decl->enum_decl != NULL) {
+            for (const CcEnumVariant *variant = decl->enum_decl->variants;
+                 variant != NULL; variant = variant->next)
+                if (!walk_type(&visitor, variant->payload)) return false;
         } else {
             visitor.locals = NULL;
             for (const CcParameter *param = decl->parameters;
@@ -759,7 +831,13 @@ static bool check_export_type(Linker *ctx, Module *module,
             name = dot + 1;
         }
         const CcFunctionDeclaration *decl = find_symbol(ctx, target, name);
-        if (decl != NULL && decl->struct_decl != NULL) {
+        if (decl != NULL && decl->enum_decl != NULL) {
+            if (!decl->is_public) {
+                failure(ctx, type->span,
+                        "public signature exposes a private enum type");
+                return false;
+            }
+        } else if (decl != NULL && decl->struct_decl != NULL) {
             if (!decl->is_public) {
                 failure(ctx, type->span,
                         "public signature exposes a private struct type");
@@ -804,6 +882,11 @@ static bool check_exported_interfaces(Linker *ctx, Module *module)
                  field != NULL; field = field->next)
                 if (field->is_public &&
                     !check_export_type(ctx, module, field->type))
+                    return false;
+        } else if (decl->enum_decl != NULL) {
+            for (const CcEnumVariant *variant = decl->enum_decl->variants;
+                 variant != NULL; variant = variant->next)
+                if (!check_export_type(ctx, module, variant->payload))
                     return false;
         } else {
             if (!check_export_type(ctx, module, decl->return_type))

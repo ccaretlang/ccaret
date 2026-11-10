@@ -24,6 +24,8 @@ typedef struct CcFunctionDeclaration CcFunctionDeclaration;
 typedef struct CcStructDeclaration CcStructDeclaration;
 typedef struct CcStructField CcStructField;
 typedef struct CcStructFieldValue CcStructFieldValue;
+typedef struct CcEnumDeclaration CcEnumDeclaration;
+typedef struct CcEnumVariant CcEnumVariant;
 typedef struct CcImportDeclaration CcImportDeclaration;
 
 struct CcImportDeclaration {
@@ -192,6 +194,20 @@ struct CcStructDeclaration {
     CcStructField *fields;
 };
 
+/* A variant has either no payload or one typed payload (possibly a tuple). */
+struct CcEnumVariant {
+    CcSourceSpan name;
+    CcType *payload; /* NULL for a unit variant. */
+    CcEnumVariant *next;
+};
+
+struct CcEnumDeclaration {
+    CcSourceSpan span;
+    CcSourceSpan name;
+    bool is_public;
+    CcEnumVariant *variants;
+};
+
 struct CcTuplePatternElement {
     CcPattern *pattern;
     CcTuplePatternElement *next;
@@ -318,6 +334,8 @@ struct CcFor {
 struct CcMatchArm {
     CcSourceSpan span;
     bool is_some;
+    CcSourceSpan enum_type; /* Invalid file ID for optional arms. */
+    CcSourceSpan variant; /* Variant identifier for enum arms. */
     CcPattern *payload; /* Non-NULL only for `some(pattern)`. */
     CcBlock *body;
     CcMatchArm *next;
@@ -340,6 +358,7 @@ struct CcFunctionDeclaration {
     /* A non-NULL struct_decl marks a top-level struct rather than a
      * function. The existing parser declaration-chain API stays intact. */
     CcStructDeclaration *struct_decl;
+    CcEnumDeclaration *enum_decl;
 };
 
 #endif

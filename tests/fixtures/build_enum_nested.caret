@@ -1,0 +1,14 @@
+enum Inner { Int(i32), Zero }
+enum Outer { Wrapped(Inner), Empty }
+fn main() -> i32 {
+    let item = Outer.Wrapped(Inner.Int(42));
+    match item {
+        Outer.Wrapped(inner) => {
+            match inner {
+                Inner.Zero => { return 0; },
+                Inner.Int(n) => { return n; },
+            }
+        },
+        Outer.Empty => { return 0; },
+    }
+}

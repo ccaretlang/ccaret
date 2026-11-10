@@ -1,0 +1,10 @@
+enum Packet { Pair((i32, (i32, i32))), Empty }
+fn main() -> i32 {
+    let packet = Packet.Pair((20, (11, 11)));
+    match packet {
+        Packet.Pair((first, (second, third))) => {
+            return first + second + third;
+        },
+        Packet.Empty => { return 0; },
+    }
+}

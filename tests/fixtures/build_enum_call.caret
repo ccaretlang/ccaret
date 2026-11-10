@@ -1,0 +1,12 @@
+enum Outcome { Ok(i32), Error }
+fn produce(counter: *i32) -> Outcome {
+    unsafe { *counter += 1; }
+    return Outcome.Ok(41);
+}
+fn main() -> i32 {
+    var calls = 0;
+    match produce(&calls) {
+        Outcome.Ok(n) => { return n + calls; },
+        Outcome.Error => { return 0; },
+    }
+}

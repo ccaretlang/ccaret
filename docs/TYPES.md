@@ -47,7 +47,7 @@ These rules must hold at every GCC optimization level. The backend must not rely
 | `(T, U)` | Tuple and multiple return values |
 | `Result<T,E>` | Intrinsic tagged result |
 | `fn(T) -> U` | Function pointer. Calling convention still to be specified |
-| `struct`, `enum`, `union` | Named aggregate types |
+| `struct`, `enum`, `union` | Named aggregate types (the executable subset supports structs and tagged enums) |
 
 The executable bootstrap supports `?T` optionals with constructors
 `some(value)` and `none` (the latter requires a contextual `?T`).
@@ -60,10 +60,25 @@ exhaustively distinguishes `some(binding_pattern)` and `none`; both arms
 are required and duplicates are rejected. Within `some`, the immutable
 payload binding has type `T` and is scoped to that arm; tuple payloads
 may be destructured. The optional scrutinee is evaluated once. There is
-no automatic unwrapping, optional chaining, `match` expression, general
-enum matching or flow-sensitive refinement after a presence check.
+no automatic unwrapping, optional chaining, `match` expression,
+wildcard/guard matching or flow-sensitive refinement after a presence check.
 The `.has`/`.value` syntax is a bootstrap subset rather than a frozen
 surface-language choice.
+
+User-defined tagged enums are nominal and distinct even if their variants
+and payloads are structurally identical. The bootstrap declaration
+`enum E { Empty, Item(T), Pair((T, U)) }` accepts unit and single-payload
+variants; construction uses `E.Empty`, `E.Item(value)` and
+`E.Pair((first, second))`. There must be at least one variant, names
+are unique, and recursive by-value enum/struct cycles are rejected.
+The currently lowerable payload types include `i32`, `bool`, `usize`,
+tuples, optionals, supported arrays/structs/enums and pointer/slice
+aggregates. Values can be stored, copied, passed and returned. A
+`match` statement must have exactly one arm per declared variant;
+payloads bind immutably within their own arms and can be tuple-destructured.
+Only the matching arm may read its payload; generated C17 guards payload
+projections against tag mismatches. No stable enum C ABI layout or
+implicit enum-to-integer conversion is promised.
 
 Arrays and slices are different types. Any implicit array to slice conversion needs an exact rule. A slice does not own memory and cannot stop a use-after-free.
 

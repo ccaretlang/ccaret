@@ -10,7 +10,7 @@ The first version now uses a typed, basic-block, non-SSA IR. Each function
 has typed parameters, local slots, temporaries, basic blocks and explicit
 terminators. Lowering supports `i32`, `bool`, `void`, a restricted `usize`,
 structural tuples (including zero- and one-element tuples), optional `?T`
-values, fixed arrays `[N]T`, nominal `struct` values and raw pointer
+values, fixed arrays `[N]T`, nominal `struct` and tagged `enum` values and raw pointer
 types `*T` / `*const T` and non-owning slices `[]T` / `[]const T`,
 including nested aggregate types.
 Other source types still fail explicitly at IR
@@ -26,18 +26,19 @@ block entry:
 Composite types have canonical, module-local IDs starting at `3` (IDs
 `0`–`2` designate `void`, `i32`, `bool`; `usize` has a distinct
 reserved builtin ID). Identical structural types
-are interned once, but distinct nominal structs retain distinct IDs even
-when their fields have identical names and types. Tuple members, optional
-payloads, array elements and struct field types are
+are interned once, but distinct nominal structs/enums retain distinct IDs
+even when their members have identical names and types. Tuple members,
+optional payloads, array elements, struct fields and enum payload types are
 defined before the enclosing type, and the verifier rejects invalid,
 forward, self-referential or duplicate composite definitions. `emit-ir`
 prints type definitions such as `type t3 = (i32, bool)`,
-`type t4 = ?t3` and `type t5 = struct Point { x: i32, y: i32 }`.
+`type t4 = ?t3`, `type t5 = struct Point { x: i32, y: i32 }`
+and `type t6 = enum Message { Empty, Value(i32) }`.
 
 For source-level `module`/`import` graphs, the bootstrap linker
 resolves public symbols and namespaces **before** lowering, producing
 one canonical source unit that still undergoes semantic analysis and
-independent IR verification. Imported function/struct names are
+independent IR verification. Imported function/struct/enum names are
 internalized with collision-free names; the entry module's `main`
 remains the executable entry point. Type and function IDs belong to the
 linked compilation unit. An independent multi-unit IR linker is not
@@ -54,7 +55,7 @@ implemented yet.
 | Raw pointers | `addr.slot` (local address), `ptr.load` and `ptr.store` (dereference/write) |
 | Slices | `slice.from.slot`, `slice.subrange`, `slice.get`, `slice.store`, `slice.len` |
 | Aggregates | `tuple`/`tuple.get`, `array` (construct), `array.get` (checked index), `array.store` (checked mutable local write); `struct`/`struct.get`/`struct.set` (named field values) |
-| Tagged values | `some`, `none` (construct optional values), `optional.has`, `optional.unwrap` |
+| Tagged values | `some`, `none` (construct optional values), `optional.has`, `optional.unwrap`; `enum.make`, `enum.is`, `enum.get` |
 | Calls | Direct `call`, including aggregate parameters and results |
 | Control | `br`, `condbr`, `ret`, `trap` |
 
@@ -77,6 +78,23 @@ returning arms becomes a `trap`, just as for exhaustive `if` chains.
 The independent verifier continues to check CFG edges, register/slot
 types and optional operations before C generation. No backend-specific
 match interpretation is required.
+
+An exhaustive enum `match` evaluates the enum scrutinee once and stores
+it in a typed slot. For each variant arm, lowering emits `enum.is`
+(comparison with the declared tag ordinal), `condbr` to the arm or
+next test, and `enum.get` only on a matching payload arm; tuple patterns
+use existing `tuple.get` projections. Each arm is its own lexical scope.
+The final unmatched test edge is a trap, although semantic exhaustiveness
+proves no valid enum value can take it. Join blocks retain fallthrough
+for non-returning arms. No enum-specific AST logic is used by the C backend.
+
+`enum.make` takes an enum type, declared variant ordinal and optional
+typed payload register; `enum.is` returns `bool`; `enum.get` returns the
+variant's exact payload type. The verifier checks nominal type metadata,
+unique variant names, member dependencies, constructor arguments,
+variant ordinal bounds and register uses (including cross-block rules).
+The C emitter always checks the tag before `enum.get` reads union data,
+even if an adversarial IR consumer bypassed the source matching discipline.
 
 `for` ranges are lowered from syntax to CFG blocks, not represented as
 first-class range values in the backend. Start and end expressions are
@@ -144,8 +162,8 @@ register is defined in the current block. The C17 emitter checks the
 discriminant and aborts before reading the payload for `optional.unwrap`.
 Because the base optional is already an IR register, a source expression
 containing calls or short-circuit control flow is evaluated once.
-Optional `match`, `try`, `defer`, and their control-flow
-lowerings remain future work. Boolean short-circuiting appears explicitly
+`Result`/`try`, `defer` and match expressions remain future work.
+Boolean short-circuiting appears explicitly
 in the CFG. Traps must not become C undefined behavior.
 
 ## Passes

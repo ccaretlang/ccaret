@@ -1,0 +1,8 @@
+enum Choice { First(i32), Second, Third(bool) }
+fn main() -> i32 {
+    match Choice.First(42) {
+        Choice.Third(flag) => { if flag { return 1; } else { return 2; } },
+        Choice.Second => { return 3; },
+        Choice.First(value) => { return value; },
+    }
+}

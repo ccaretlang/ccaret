@@ -69,17 +69,20 @@ pub struct Point { pub x: i32, pub y: i32 }
   `shape.Point { x: 1, y: 2 }`. Imports do not flatten names into the
   caller's scope. Imports can themselves import other modules.
 - `pub fn` and `pub struct` make declarations available to imports.
+  A `pub enum` similarly exports its name and all variants, with no
+  per-variant visibility modifier in this bootstrap subset.
   Private declarations remain usable **within their own module**.
   For this bootstrap subset, an imported public struct must have only
   `pub` fields (including when constructing or passing it); support for
   opaque imported structs and selective public field access is pending.
   Public function parameters and results cannot expose private struct
-  types. The linker rejects attempts to bypass visibility.
-- Each module has its own top-level function and nominal struct namespace.
+  or enum types, and a public enum cannot expose a private nominal payload
+  type. The linker rejects attempts to bypass visibility.
+- Each module has its own top-level function and nominal struct/enum namespace.
   Acyclic imports, duplicate aliases, conflicting local declarations,
   missing files, path/name mismatches and collisions with reserved internal
   compiler symbols are rejected.
-- Cross-module function calls and struct values keep the same source
+- Cross-module function calls, struct and enum values keep the same source
   semantics, left-to-right evaluation and verified typed IR as local
   declarations. Types remain nominal, even if distinct modules declare
   structurally identical records.
@@ -88,6 +91,14 @@ pub struct Point { pub x: i32, pub y: i32 }
   `some(name)` binder shadows an import alias only inside its own arm.
   The exhaustive optional match is lowered after linking into the
   same independently verified CFG used for local functions.
+- Imported enum types are written `alias.Enum`. Constructors and arms
+  are written `alias.Enum.Variant` or
+  `alias.Enum.Payload(value)` / `alias.Enum.Payload(pattern)`.
+  The linker rewrites the enum type qualifier while retaining variant
+  names and arm-local bindings. Imports inside enum arm bodies work;
+  payload binders shadow import aliases only for their own arm.
+  Structurally identical enums in different modules remain nominally
+  distinct. Both local and cross-module enums use verified IR before C17.
 - Source diagnostics are mapped from the compiler's internal linked unit
   back to their originating file and location.
 
@@ -102,7 +113,7 @@ cyclic graphs are unsupported. For now a public struct with private
 fields cannot be imported, even as an opaque value. This is a deliberately
 restricted milestone, not a final rule about field privacy.
 
-Public C ABI exports, struct layout attributes, pointer-based opaque
+Public C ABI exports, struct/enum layout attributes, pointer-based opaque
 interfaces, visibility across packages and stable generated symbol names
 remain to be designed. An eventual multi-file IR linker can replace the
 bootstrap canonical-source linker without changing the source-level

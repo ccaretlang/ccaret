@@ -1,8 +1,8 @@
 # C17 backend and executable pipeline
 
 The C^ bootstrap compiler can produce executables for a **restricted typed
-subset**, including structural tuples, fixed arrays, nominal structs
-and optional values. The C backend
+subset**, including structural tuples, fixed arrays, nominal structs,
+tagged enums and optional values. The C backend
 consumes only independently verified typed IR, never the AST.
 
 ## Commands
@@ -53,8 +53,18 @@ entry point is `fn main() -> i32`.
   tuple destructuring), order-independent arms, nested matches, fallthrough
   to following statements and fully-returning arms. Each optional value is
   evaluated once and lowered to verified IR `optional.has`/`condbr` with
-  `optional.unwrap` exclusively on the `some` path. Enum matching,
-  match expressions, wildcards and guards are not implemented.
+  `optional.unwrap` exclusively on the `some` path. Match expressions,
+  wildcard arms and guards are not implemented.
+- Nominal `enum Name { Empty, Value(T), Pair((T, U)) }` declarations with
+  unit or single-payload variants, type-checked constructors,
+  by-value copies/parameters/returns and arbitrary nesting with already
+  supported composite types. Exhaustive `match` requires one arm per
+  variant, with arm-local immutable payload pattern bindings (including
+  tuple destructuring), evaluated-once scrutinee and correct fallthrough
+  and return behavior. Lowering emits verified `enum.make` / `enum.is` /
+  `enum.get` plus ordinary branches and slots; no AST-to-C bypass.
+  Recursive by-value enums are rejected, as are wildcard/guard patterns
+  and general nested enum variant patterns.
 - Fixed arrays `[N]T` with `[x, y]` literals (including `[]` with a
   type annotation), nested element types, by-value copies, parameters,
   returns, indexed reads, single-level indexed writes to `var` locals,
@@ -72,7 +82,7 @@ entry point is `fn main() -> i32`.
   and nesting with tuples/optionals/arrays are supported. Different
   named structs are never structurally interchangeable.
 - Local acyclic source modules with `module`, `import` (optionally
-  `as`-aliased), `pub` and cross-module functions/structs. Module
+  `as`-aliased), `pub` and cross-module functions/structs/enums. Module
   resolution checks explicit names and visibility before lowering. One
   canonical linked source unit passes through the same verified IR and
   C17 emitter.
@@ -111,6 +121,12 @@ or semantically absent payload of `none` is never accessed.
 For a `match`, the emitted C branches on `has`; the IR unwrap (and its
 safety guard) appears only in the `some` arm. The `none` arm never reads
 the payload. Matching requires no direct AST-to-C special case.
+Tagged enums use a deterministic internal C17 struct with a `uint32_t tag`
+and a union containing one typed field per payload-bearing variant;
+unit variants use a distinct tag and no active payload. `enum.get`
+emits an explicit tag guard followed by `abort()` on mismatch, before
+accessing the union member. Matching compares the tag and branches on
+the verified IR condition. The internal layout is **not** a frozen C ABI.
 Arrays use a fixed `elements[N]` field, or a
 dummy byte for `N = 0`, because zero-length C arrays are not standard
 C17. Array lengths are limited to 65536 in this bootstrap backend.
@@ -149,18 +165,19 @@ wrapping/cast decisions remain open.
 ## Not yet supported by the backend
 
 Pointer-origin slice creation, pointer arithmetic, casts,
-volatile pointers, floating-point values, enums, unions, type aliases,
+volatile pointers, floating-point values, unions, type aliases,
 signed shifts (`<<`, `>>`, `<<=`, `>>=`) and multi-width integer
 arithmetic have not yet been lowered. Signed right-shift semantics
-are still open in the language specification. Exhaustive optional
-pattern matching and implicit optional chaining are not yet implemented.
+are still open in the language specification. Match expressions,
+guards, wildcard and recursive enum-pattern matching, generic
+`Result<T,E>` and implicit optional chaining are not yet implemented.
 Nested indexed assignment (`a[i][j] = x`), arbitrary `usize` arithmetic,
 and indexed targets other than a named mutable array local or named
 mutable-element slice local are not yet supported.
 Nested struct field writes (`object.child.value = x`) are not yet
 supported; directly assigned struct fields must belong to a `var`
-local. Recursive struct value types and recursive struct-through-pointer
-types are currently disallowed. Modules currently
+local. Recursive struct/enum value types, including cycles through
+raw pointers, are currently disallowed. Modules currently
 use one source file per dotted path and a root inferred from the entry
 filename. Imported public structs require all fields to be `pub`;
 opaque imported structs, import re-exports, package search roots and
@@ -181,6 +198,12 @@ aggregates, pointer and slice payloads, imported functions, GCC `-O2`
 with strict warnings and abort-on-`none` cases. Run
 `sh tests/test_optional_access_sanitizers.sh` for focused ASan/UBSan
 coverage of the optional inspection pipeline.
+
+Run `sh tests/test_enum_sanitizers.sh` for ASan/UBSan coverage of the
+parser/semantic/IR verifier, tagged enum construction and exhaustive
+matching (including tagged unions containing tuples, optionals, arrays,
+structs, pointers and slices), generated C17, a three-module executable
+and a compiler compiled with strict `-O2 -Werror` flags.
 
 `make check` runs the positive, negative, trap and module-linking
 subrange fixtures under the normal compiler, including strict

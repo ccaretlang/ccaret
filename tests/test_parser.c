@@ -3079,7 +3079,7 @@ static void test_optional_match_ast(void)
 
     static const struct { const char *source; const char *error; } cases[] = {
         { "fn f(x: ?i32) { match x { other => {} } }",
-          "expected `some` or `none` match arm" },
+          "expected `.` after enum type in match arm" },
         { "fn f(x: ?i32) { match x { some => {} } }",
           "expected `(` after `some` match arm" },
         { "fn f(x: ?i32) { match x { some(a => {} } }",
@@ -3101,6 +3101,64 @@ static void test_optional_match_ast(void)
             fprintf(stderr, "optional match case %zu: expected %s, got %s\n",
                     i, cases[i].error, f.parser.error);
         assert(strcmp(f.parser.error, cases[i].error) == 0);
+        fixture_destroy(&f);
+    }
+}
+
+static void test_enum_syntax_ast(void)
+{
+    ParserFixture f;
+    fixture_init(&f,
+        "pub enum Packet { Empty, Data((i32, (i32, i32))), }"
+        " fn main() -> i32 {"
+        " match Packet.Data((20, (11, 11))) {"
+        " Packet.Empty => { return 0; },"
+        " Packet.Data((a, (b, c))) => { return a + b + c; },"
+        " } }");
+    CcFunctionDeclaration *decl = cc_parser_parse_program(&f.parser);
+    assert(!f.parser.failed && decl != NULL);
+    assert(decl->enum_decl != NULL && decl->struct_decl == NULL &&
+           decl->is_public);
+    assert(decl->enum_decl->variants != NULL);
+    assert(decl->enum_decl->variants->payload == NULL);
+    CcEnumVariant *data = decl->enum_decl->variants->next;
+    assert(data != NULL && data->payload != NULL &&
+           data->payload->kind == CC_AST_TYPE_TUPLE && data->next == NULL);
+    assert(decl->next != NULL && decl->next->enum_decl == NULL);
+    CcStatement *match = decl->next->body->first;
+    assert(match != NULL && match->kind == CC_AST_STATEMENT_MATCH);
+    assert(match->match_statement->arms != NULL);
+    CcMatchArm *first = match->match_statement->arms;
+    assert(first->enum_type.file_id == f.id &&
+           first->variant.file_id == f.id &&
+           first->payload == NULL);
+    assert(first->next != NULL &&
+           first->next->payload->kind == CC_AST_PATTERN_TUPLE);
+    assert(first->next->next == NULL);
+    fixture_destroy(&f);
+
+    static const struct { const char *source; const char *message; } cases[] = {
+        { "enum { A }", "expected enum name" },
+        { "enum E { A(i32 }",
+          "expected `)` after variant payload type" },
+        { "enum E { A B }", "expected `}` after enum declaration" },
+        { "enum E { = }", "expected enum variant name" },
+        { "fn f(x: E) { match x { E => {} } }",
+          "expected `.` after enum type in match arm" },
+        { "fn f(x: E) { match x { E.A(x) {} } }",
+          "expected `=>` after match pattern" },
+        { "fn f(x: E) { match x { E.A => {} E.B => {} } }",
+          "expected `,` between match arms" }
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        fixture_init(&f, cases[i].source);
+        cc_parser_parse_program(&f.parser);
+        if (!f.parser.failed || strcmp(f.parser.error, cases[i].message) != 0)
+            fprintf(stderr, "enum syntax %zu: expected %s; actual %s\n",
+                    i, cases[i].message,
+                    f.parser.error ? f.parser.error : "<success>");
+        assert(f.parser.failed && f.parser.error != NULL &&
+               strcmp(f.parser.error, cases[i].message) == 0);
         fixture_destroy(&f);
     }
 }
@@ -3185,6 +3243,7 @@ int main(void)
     test_slice_intrinsic_ast();
     test_optional_access_ast();
     test_optional_match_ast();
+    test_enum_syntax_ast();
     test_subrange_ast();
     test_parse_errors();
     test_empty_source_without_functions();

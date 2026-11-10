@@ -1,0 +1,8 @@
+enum One { Value(i32), Empty }
+enum Two { Value(i32), Empty }
+fn main() -> i32 {
+    match One.Value(42) {
+        Two.Value(n) => { return n; },
+        One.Empty => { return 0; },
+    }
+}

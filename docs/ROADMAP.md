@@ -72,14 +72,19 @@
 
 ## Phase 5: Enums, optionals and cleanup
 
-- [ ] Tagged enums, pattern matching and exhaustiveness.
+- [x] Tagged nominal enums with unit variants and one typed payload per
+      variant, by-value constructors/parameters/returns, and exhaustive
+      statement matching. Verified IR has enum make/test/checked payload
+      projection opcodes; C17 uses a tag and union; local modules and
+      -O2/sanitizer conformance are covered.
 - [x] Optional `?T`, `some`, `none` construction and value propagation
       plus `.has` inspection and checked `.value` extraction through
       independently verified IR and C17.
 - [x] Exhaustive optional `match` statement with `some(pattern)` / `none`,
       typed immutable payload bindings (including tuple destructuring),
       single scrutinee evaluation, scoped arms, CFG lowering and module support.
-      Enum matching, match expressions and general pattern coverage remain open.
+      Enum matching is implemented separately. Match expressions, guards,
+      wildcards and nested enum-pattern coverage remain open.
 - [ ] `Result<T,E>` and `try` propagation.
 - [x] Tuples, nested values, destructuring and multi-value returns.
 - [ ] `defer`, `errdefer`, cleanup and branching edge cases.

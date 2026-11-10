@@ -24,12 +24,13 @@
 | P-003 | Signed arithmetic traps, unsigned wraps, explicit `+%`. | Exact overflow and cast rules, target lowering. |
 | P-004 | `*T` is proposed non-null raw pointer, `?*T` nullable. | Initial typed C17 pointer operations implemented; non-null guarantee, aliasing, provenance, escape safety and reference safety still open. |
 | P-005 | Ordinary structs and tuples have copy semantics. | Ownership and resource contracts. |
-| P-006 | `?T`, `Result<T,E>`, `try`, `defer`, `errdefer`. | `?T` now supports `some`/`none`, `.has`, checked `.value` and exhaustive statement `match` with `some(pattern)` / `none` as executable bootstrap forms; final pattern syntax, enum matching, `Result` propagation and cleanup remain open. |
+| P-006 | `?T`, `Result<T,E>`, `try`, `defer`, `errdefer`. | `?T` supports `some`/`none`, `.has`, checked `.value` and exhaustive optional statement matching. Nominal tagged enums with exhaustive variant arms are also executable bootstrap forms. Final pattern/constructor syntax, generic `Result` propagation and cleanup remain open. |
 | P-007 | One file per module, acyclic imports for now. | Bootstrap subset implemented for local root-relative source graphs, aliased imports and `pub` checks; final package layout, search roots and separate compilation remain open. |
 | P-008 | Typed non-SSA IR with explicit blocks. | Aggregate merges and ABI lowering. |
 | P-009 | UTF-8 source with ASCII identifiers for now. | Future Unicode policy. |
 | P-010 | Generated C17 plus optional target-specific extensions. | Target compatibility declarations. |
 | P-011 | An explicit `slice(local_array)` built-in creates non-owning `[]T` / `[]const T` views in the bootstrap C17 pipeline. | Checked, exclusive `a[from..to]` subranges now implemented for named local arrays and slice expressions; pointer-origin slices, lifetime/alias rules and final intrinsic naming remain open; no implicit array-to-slice coercion. |
+| P-012 | Bootstrap enum constructor `Name.Unit` / `Name.Payload(value)` and exhaustive `Name.Variant(pattern)` statement arms. | Implemented for nominal enum values with optional single typed payload, immutable arm bindings, verified tag operations and C17 union representation; final syntax, ABI, guards, wildcard arms, match expressions and advanced variant patterns remain open. |
 
 ## Open questions before the lexer and parser freeze
 

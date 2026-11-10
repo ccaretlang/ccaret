@@ -1,0 +1,9 @@
+struct Point { x: i32, y: i32 }
+enum Envelope { Point(Point), Void }
+fn main() -> i32 {
+    let item: Envelope = Envelope.Point(Point { x: 20, y: 22 });
+    match item {
+        Envelope.Void => { return 0; },
+        Envelope.Point(p) => { return p.x + p.y; },
+    }
+}

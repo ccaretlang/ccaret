@@ -503,7 +503,7 @@ static void test_optional_match_semantics(void)
           " return result; }");
 
     invalid("fn f() { match 42 { some(n) => {}, none => {} } }",
-            "match requires an optional value", "42");
+            "match requires an optional value or enum value", "42");
     invalid("fn f(x: ?i32) { match x { some(n) => {} } }",
             "non-exhaustive optional match: both some and none required", NULL);
     invalid("fn f(x: ?i32) { match x { none => {} } }",
@@ -532,6 +532,88 @@ static void test_optional_match_semantics(void)
             "not all control-flow paths return a value", NULL);
 }
 
+static void test_enum_match_semantics(void)
+{
+    valid("enum Choice { Left(i32), Right }"
+          "fn f(x: Choice) -> i32 { match x {"
+          " Choice.Right => { return 0; },"
+          " Choice.Left(n) => { return n; }, } }");
+    valid("enum One { Only } fn f() -> i32 {"
+          " match One.Only { One.Only => { return 42; } } }");
+    valid("enum Packet { Pair((i32, (i32, i32))), Empty }"
+          "fn f(x: Packet) -> i32 { match x {"
+          " Packet.Pair((a, (b, c))) => { return a + b + c; },"
+          " Packet.Empty => { return 0; }, } }");
+    valid("enum E { Wrapped(?i32), Empty }"
+          "fn f(x: E) -> i32 { match x {"
+          " E.Wrapped(maybe) => { match maybe {"
+          " some(n) => { return n; }, none => { return 0; } } },"
+          " E.Empty => { return 0; } } }");
+    valid("enum E { Number(i32), Empty }"
+          "fn f() -> i32 { var n = 0;"
+          " match E.Number(42) { E.Number(v) => { n = v; },"
+          " E.Empty => { n = 0; } } return n; }");
+
+    invalid("enum E {} fn f() {}", "enum must declare a variant", "E");
+    invalid("enum E { A, A } fn f() {}", "duplicate enum variant", "A");
+    invalid("enum E { A(E), B } fn f() {}",
+            "recursive enum value type", "E");
+    invalid("enum E { A(void), B } fn f() {}",
+            "enum payload cannot be void", "void");
+    invalid("enum E { A } fn E() {}",
+            "function name conflicts with enum", "E");
+    invalid("enum E { A } enum E { B }",
+            "duplicate nominal type name", "E");
+    invalid("enum E { A(i32), B } fn f(x: E) { match x {"
+            " E.A(n) => {} } }",
+            "non-exhaustive enum match", NULL);
+    invalid("enum E { A(i32), B } fn f(x: E) { match x {} }",
+            "non-exhaustive enum match", NULL);
+    invalid("enum E { A(i32), B } fn f(x: E) { match x {"
+            " some(n) => {}, none => {} } }",
+            "enum match arm must name the scrutinee enum", NULL);
+    invalid("fn f(x: ?i32) { match x {"
+            " E.A(n) => {}, none => {} } }",
+            "optional match expects some or none arms", NULL);
+    invalid("enum E { A(i32), B } fn f(x: E) { match x {"
+            " E.A(n) => {}, E.B => {}, E.A(m) => {} } }",
+            "duplicate enum match arm", "A");
+    invalid("enum E { A(i32), B } fn f(x: E) { match x {"
+            " E.X(n) => {}, E.B => {} } }",
+            "unknown enum variant", "X");
+    invalid("enum E { A(i32), B } enum F { A(i32), B }"
+            "fn f(x: E) { match x { F.A(n) => {}, E.B => {} } }",
+            "enum match arm must name the scrutinee enum", NULL);
+    invalid("enum E { A(i32), B } fn f(x: E) { match x {"
+            " E.A => {}, E.B => {} } }",
+            "enum match payload pattern mismatch", NULL);
+    invalid("enum E { A(i32), B } fn f(x: E) { match x {"
+            " E.A(n) => {}, E.B(b) => {} } }",
+            "enum match payload pattern mismatch", NULL);
+    invalid("enum E { A(i32), B } fn f() { let y = E.B(10); }",
+            "unit enum variant takes no arguments", NULL);
+    invalid("enum E { A(i32), B } fn f() { let y = E.A; }",
+            "enum variant requires a payload", NULL);
+    invalid("enum E { A(i32), B } fn f() { let y = E.A(1, 2); }",
+            "enum constructor expects one payload argument", NULL);
+    invalid("enum E { A(i32), B } fn f() { let y = E.A(true); }",
+            "type mismatch", "true");
+    invalid("enum E { A(i32), B } fn f() { let y = E.X; }",
+            "unknown enum variant", "X");
+    invalid("enum E { A(i32), B } fn f(x: E) { match x {"
+            " E.A(n) => {}, E.B => {} } let out = n; }",
+            "undefined name", "n");
+    invalid("enum E { A(i32), B } fn f(x: E) { match x {"
+            " E.A(n) => { n = 10; }, E.B => {} } }",
+            "cannot assign to immutable binding", "n");
+    invalid("enum E { A(i32), B } fn f(x: E) -> i32 { match x {"
+            " E.A(n) => { return n; }, E.B => {} } }",
+            "not all control-flow paths return a value", NULL);
+    invalid("enum E { A(i32) } enum F { A(i32) }"
+            "fn f(x: E) {} fn main() { f(F.A(42)); }",
+            "type mismatch", NULL);
+}
+
 static void test_api_errors(void)
 {
     CcArena arena;
@@ -550,6 +632,7 @@ int main(void)
     test_valid_programs();
     test_invalid_programs();
     test_optional_match_semantics();
+    test_enum_match_semantics();
     test_api_errors();
 
     puts("semantic: all tests passed");

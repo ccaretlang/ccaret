@@ -1,0 +1,7 @@
+enum Outcome { Ok(i32), Err }
+fn main() -> i32 {
+    match Outcome.Ok(42) {
+        Outcome.Ok => { return 42; },
+        Outcome.Err => { return 0; },
+    }
+}

@@ -1,0 +1,9 @@
+enum Holder { View([]i32), Empty }
+fn main() -> i32 {
+    var data = [20, 22];
+    let view = slice(data);
+    match Holder.View(view) {
+        Holder.View(items) => { return items[0] + items[1]; },
+        Holder.Empty => { return 0; },
+    }
+}

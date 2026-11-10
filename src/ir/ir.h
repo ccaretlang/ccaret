@@ -25,6 +25,7 @@ typedef enum {
     CC_IR_TYPE_OPTIONAL,
     CC_IR_TYPE_ARRAY,
     CC_IR_TYPE_STRUCT,
+    CC_IR_TYPE_ENUM,
     CC_IR_TYPE_POINTER,
     CC_IR_TYPE_SLICE
 } CcIrCompositeKind;
@@ -39,8 +40,8 @@ struct CcIrTypeInfo {
     CcIrType inner;
     bool pointer_const; /* Pointer target is read-only (not a const binding). */
     bool slice_const;   /* Slice element access is read-only. */
-    CcSourceSpan name;          /* Nominal struct name, otherwise unused. */
-    CcSourceSpan *field_names;  /* Nominal struct fields in declaration order. */
+    CcSourceSpan name;          /* Nominal struct/enum name, otherwise unused. */
+    CcSourceSpan *field_names;  /* Struct fields or enum variants, in order. */
     CcIrTypeInfo *next;
 };
 
@@ -77,6 +78,9 @@ typedef enum {
     CC_IR_MAKE_NONE,
     CC_IR_OPTIONAL_HAS,
     CC_IR_OPTIONAL_UNWRAP,
+    CC_IR_MAKE_ENUM,
+    CC_IR_ENUM_IS,
+    CC_IR_ENUM_GET,
     CC_IR_MAKE_ARRAY,
     CC_IR_GET_ARRAY,
     CC_IR_STORE_INDEX,

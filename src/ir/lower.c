@@ -7,12 +7,20 @@
 typedef struct LowerVar LowerVar;
 typedef struct LowerLoop LowerLoop;
 typedef struct LowerStruct LowerStruct;
+typedef struct LowerEnum LowerEnum;
 
 struct LowerStruct {
     const CcStructDeclaration *decl;
     CcIrType id;
     unsigned int state;
     LowerStruct *next;
+};
+
+struct LowerEnum {
+    const CcEnumDeclaration *decl;
+    CcIrType id;
+    unsigned int state;
+    LowerEnum *next;
 };
 
 struct LowerVar {
@@ -37,6 +45,7 @@ typedef struct {
     LowerVar *variables;
     LowerLoop *loop;
     LowerStruct *structs;
+    LowerEnum *enums;
     CcIrError *error;
     bool failed;
 } Lower;
@@ -85,7 +94,7 @@ static CcIrType intern_type(Lower *ctx, CcIrCompositeKind kind,
     for (CcIrTypeInfo *info = ctx->module->types; info != NULL;
          info = info->next) {
         if (info->kind != kind) continue;
-        if (kind == CC_IR_TYPE_STRUCT) continue;
+        if (kind == CC_IR_TYPE_STRUCT || kind == CC_IR_TYPE_ENUM) continue;
         if (kind == CC_IR_TYPE_OPTIONAL || kind == CC_IR_TYPE_ARRAY ||
             kind == CC_IR_TYPE_POINTER || kind == CC_IR_TYPE_SLICE) {
             if (info->inner == inner &&
@@ -158,8 +167,66 @@ static LowerStruct *find_struct(Lower *ctx, CcSourceSpan name)
     return NULL;
 }
 
+static LowerEnum *find_enum(Lower *ctx, CcSourceSpan name)
+{
+    for (LowerEnum *entry = ctx->enums; entry != NULL;
+         entry = entry->next)
+        if (name_equal(ctx, entry->decl->name, name)) return entry;
+    return NULL;
+}
+
 static bool type_of(Lower *ctx, const CcType *node, CcIrType *result,
                     CcSourceSpan fallback);
+
+static CcIrType intern_enum(Lower *ctx, LowerEnum *entry)
+{
+    if (entry->state == 2) return entry->id;
+    if (entry->state == 1) {
+        error_at(ctx, entry->decl->name,
+                 "IR lowering: recursive enum value type");
+        return CC_IR_NONE;
+    }
+    entry->state = 1;
+    uint32_t count = 0;
+    for (const CcEnumVariant *part = entry->decl->variants; part != NULL;
+         part = part->next) count++;
+    if (count == 0 || count > 65536U) {
+        error_at(ctx, entry->decl->name, "IR lowering: invalid enum variants");
+        return CC_IR_NONE;
+    }
+    CcIrType *types = new_object(ctx, count * sizeof(*types),
+                                 entry->decl->span);
+    CcSourceSpan *names = new_object(ctx, count * sizeof(*names),
+                                     entry->decl->span);
+    if (types == NULL || names == NULL) return CC_IR_NONE;
+    uint32_t index = 0;
+    for (const CcEnumVariant *part = entry->decl->variants; part != NULL;
+         part = part->next) {
+        if (!type_of(ctx, part->payload, &types[index], part->name))
+            return CC_IR_NONE;
+        names[index++] = part->name;
+    }
+    if (ctx->module->type_count >= CC_IR_USIZE) {
+        error_at(ctx, entry->decl->span, "too many IR types");
+        return CC_IR_NONE;
+    }
+    CcIrTypeInfo *info = new_object(ctx, sizeof(*info), entry->decl->span);
+    if (info == NULL) return CC_IR_NONE;
+    memset(info, 0, sizeof(*info));
+    info->id = ctx->module->type_count++;
+    info->kind = CC_IR_TYPE_ENUM;
+    info->count = count;
+    info->members = types;
+    info->name = entry->decl->name;
+    info->field_names = names;
+    if (ctx->module->last_type == NULL)
+        ctx->module->types = info;
+    else ctx->module->last_type->next = info;
+    ctx->module->last_type = info;
+    entry->id = info->id;
+    entry->state = 2;
+    return info->id;
+}
 
 static CcIrType intern_struct(Lower *ctx, LowerStruct *entry)
 {
@@ -289,6 +356,11 @@ static bool type_of(Lower *ctx, const CcType *node, CcIrType *result,
         LowerStruct *record = find_struct(ctx, node->span);
         if (record != NULL) {
             *result = intern_struct(ctx, record);
+            return !ctx->failed;
+        }
+        LowerEnum *enumeration = find_enum(ctx, node->span);
+        if (enumeration != NULL) {
+            *result = intern_enum(ctx, enumeration);
             return !ctx->failed;
         }
     }
@@ -702,6 +774,48 @@ static Value lower_subrange(Lower *ctx, const CcExpression *expr,
     return result;
 }
 
+static Value lower_enum_constructor(Lower *ctx, CcSourceSpan owner,
+                                    CcSourceSpan variant,
+                                    const CcExpression *payload,
+                                    CcIrType expected, CcSourceSpan span)
+{
+    LowerEnum *entry = find_enum(ctx, owner);
+    if (entry == NULL) {
+        error_at(ctx, owner, "IR lowering: unknown enum type");
+        return no_value();
+    }
+    CcIrType type = intern_enum(ctx, entry);
+    if (ctx->failed) return no_value();
+    if (expected != CC_IR_NONE && type != expected) {
+        error_at(ctx, span, "IR lowering: enum type mismatch");
+        return no_value();
+    }
+    const CcIrTypeInfo *info = cc_ir_type_info(ctx->module, type);
+    uint32_t index = 0;
+    while (index < info->count &&
+           !name_equal(ctx, info->field_names[index], variant)) index++;
+    if (index == info->count ||
+        (payload == NULL) != (info->members[index] == CC_IR_VOID)) {
+        error_at(ctx, span, "IR lowering: invalid enum constructor");
+        return no_value();
+    }
+    Value argument = no_value();
+    if (payload != NULL) {
+        argument = lower_expr(ctx, payload, info->members[index]);
+        if (ctx->failed || argument.type != info->members[index]) {
+            error_at(ctx, span, "IR lowering: enum payload type mismatch");
+            return no_value();
+        }
+    }
+    CcIrInstruction *node = NULL;
+    Value value = append(ctx, CC_IR_MAKE_ENUM, type, span, &node);
+    if (node != NULL) {
+        node->slot = index;
+        node->lhs = payload == NULL ? CC_IR_NONE : argument.reg;
+    }
+    return value;
+}
+
 static Value lower_expr(Lower *ctx, const CcExpression *expr,
                         CcIrType expected)
 {
@@ -979,6 +1093,12 @@ static Value lower_expr(Lower *ctx, const CcExpression *expr,
         return item;
     }
     case CC_AST_EXPRESSION_MEMBER: {
+        if (expr->member.operand->kind == CC_AST_EXPRESSION_IDENTIFIER &&
+            find_variable(ctx, expr->member.operand->identifier_name) == NULL &&
+            find_enum(ctx, expr->member.operand->identifier_name) != NULL)
+            return lower_enum_constructor(ctx,
+                expr->member.operand->identifier_name, expr->member.name,
+                NULL, expected, expr->span);
         Value array = lower_expr(ctx, expr->member.operand, CC_IR_NONE);
         if (ctx->failed) return no_value();
         const CcIrTypeInfo *type = cc_ir_type_info(ctx->module, array.type);
@@ -1215,6 +1335,21 @@ static Value lower_expr(Lower *ctx, const CcExpression *expr,
         return result;
     }
     case CC_AST_EXPRESSION_CALL: {
+        const CcExpression *callee = expr->call.callee;
+        if (callee->kind == CC_AST_EXPRESSION_MEMBER &&
+            callee->member.operand->kind == CC_AST_EXPRESSION_IDENTIFIER &&
+            find_variable(ctx, callee->member.operand->identifier_name) == NULL &&
+            find_enum(ctx, callee->member.operand->identifier_name) != NULL) {
+            const CcCallArgument *arg = expr->call.arguments;
+            if (arg == NULL || arg->next != NULL) {
+                error_at(ctx, expr->span,
+                         "IR lowering: enum constructor arity mismatch");
+                return no_value();
+            }
+            return lower_enum_constructor(ctx,
+                callee->member.operand->identifier_name, callee->member.name,
+                arg->value, expected, expr->span);
+        }
         if (expr->call.callee->kind == CC_AST_EXPRESSION_IDENTIFIER &&
             name_is(ctx, expr->call.callee->identifier_name, "slice") &&
             find_function(ctx, expr->call.callee->identifier_name) == NULL) {
@@ -1462,6 +1597,59 @@ static bool lower_match(Lower *ctx, const CcMatch *match)
     if (ctx->failed) return false;
     const CcIrTypeInfo *type =
         cc_ir_type_info(ctx->module, scrutinee.type);
+    if (type != NULL && type->kind == CC_IR_TYPE_ENUM) {
+        uint32_t saved_slot = make_slot(ctx, scrutinee.type, match->span);
+        if (ctx->failed || !store(ctx, saved_slot, scrutinee, match->span))
+            return false;
+        CcIrBlock *join = new_block(ctx, match->span);
+        if (ctx->failed) return false;
+        for (const CcMatchArm *arm = match->arms; arm != NULL;
+             arm = arm->next) {
+            uint32_t index = 0;
+            while (index < type->count &&
+                   !name_equal(ctx, type->field_names[index], arm->variant))
+                index++;
+            if (index == type->count) {
+                error_at(ctx, arm->span, "IR lowering: unknown enum arm");
+                return false;
+            }
+            CcIrBlock *yes = new_block(ctx, arm->span);
+            CcIrBlock *next = new_block(ctx, arm->span);
+            if (ctx->failed) return false;
+            scrutinee = load(ctx, saved_slot, arm->span);
+            if (ctx->failed) return false;
+            CcIrInstruction *test = NULL;
+            Value selected = append(ctx, CC_IR_ENUM_IS, CC_IR_BOOL,
+                                    arm->span, &test);
+            if (test == NULL) return false;
+            test->lhs = scrutinee.reg;
+            test->slot = index;
+            branch(ctx, selected, yes, next, arm->span);
+            ctx->current = yes;
+            LowerVar *saved = ctx->variables;
+            bool ok = true;
+            if (type->members[index] != CC_IR_VOID) {
+                scrutinee = load(ctx, saved_slot, arm->span);
+                if (ctx->failed) return false;
+                CcIrInstruction *get = NULL;
+                Value payload = append(ctx, CC_IR_ENUM_GET,
+                                       type->members[index], arm->span, &get);
+                if (get == NULL) return false;
+                get->lhs = scrutinee.reg;
+                get->slot = index;
+                ok = lower_pattern(ctx, arm->payload, payload, false);
+            }
+            if (ok) ok = lower_block(ctx, arm->body, true);
+            ctx->variables = saved;
+            if (!ok) return false;
+            if (!ctx->current->terminated) jump(ctx, join, arm->span);
+            ctx->current = next;
+        }
+        ctx->current->terminated = true;
+        ctx->current->terminator = CC_IR_TRAP;
+        ctx->current = join;
+        return !ctx->failed;
+    }
     if (type == NULL || type->kind != CC_IR_TYPE_OPTIONAL) {
         error_at(ctx, match->scrutinee->span,
                  "IR lowering: match requires optional");
@@ -2053,14 +2241,28 @@ bool cc_ir_lower(const CcSourceFile *file,
         entry->next = ctx.structs;
         ctx.structs = entry;
     }
+    for (const CcFunctionDeclaration *decl = program; decl != NULL;
+         decl = decl->next) {
+        if (decl->enum_decl == NULL) continue;
+        LowerEnum *entry = new_object(&ctx, sizeof(*entry), decl->span);
+        if (entry == NULL) return false;
+        entry->decl = decl->enum_decl;
+        entry->id = CC_IR_NONE;
+        entry->state = 0;
+        entry->next = ctx.enums;
+        ctx.enums = entry;
+    }
     for (LowerStruct *entry = ctx.structs; entry != NULL;
          entry = entry->next)
         if (intern_struct(&ctx, entry) == CC_IR_NONE) return false;
+    for (LowerEnum *entry = ctx.enums; entry != NULL;
+         entry = entry->next)
+        if (intern_enum(&ctx, entry) == CC_IR_NONE) return false;
 
     CcIrFunction **link = &ctx.module->functions;
     for (const CcFunctionDeclaration *decl = program; decl != NULL;
          decl = decl->next) {
-        if (decl->struct_decl != NULL) continue;
+        if (decl->struct_decl != NULL || decl->enum_decl != NULL) continue;
         CcIrFunction *function = new_object(&ctx, sizeof(*function), decl->span);
         if (function == NULL) return false;
         memset(function, 0, sizeof(*function));
@@ -2097,7 +2299,7 @@ bool cc_ir_lower(const CcSourceFile *file,
     ctx.function = ctx.module->functions;
     for (const CcFunctionDeclaration *decl = program; decl != NULL;
          decl = decl->next) {
-        if (decl->struct_decl != NULL) continue;
+        if (decl->struct_decl != NULL || decl->enum_decl != NULL) continue;
         ctx.variables = NULL;
         ctx.loop = NULL;
         uint32_t index = 0;

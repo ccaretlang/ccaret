@@ -1,0 +1,2 @@
+enum Result { Empty, Value(i32) }
+fn main() -> i32 { let result = Result.Value(20, 22); return 42; }

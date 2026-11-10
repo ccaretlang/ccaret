@@ -518,6 +518,155 @@ static void test_optional_match_cfg_and_verifier(void)
     fixture_destroy(&f);
 }
 
+static void test_enum_match_cfg_and_verifier(void)
+{
+    Fixture f;
+    fixture_init(&f,
+        "enum Event { Empty, Number(i32), Pair((i32, i32)) }"
+        "fn produce(counter: *i32) -> Event {"
+        " unsafe { *counter += 1; } return Event.Pair((20, 22)); }"
+        "fn main() -> i32 { var count = 0;"
+        " let empty = Event.Empty;"
+        " match produce(&count) {"
+        " Event.Pair((a, b)) => { return a + b + count - 1; },"
+        " Event.Empty => { return 0; },"
+        " Event.Number(n) => { return n; }, } }");
+    lower(&f);
+    CcIrTypeInfo *enumeration = NULL;
+    for (CcIrTypeInfo *type = f.module->types; type != NULL;
+         type = type->next)
+        if (type->kind == CC_IR_TYPE_ENUM) enumeration = type;
+    assert(enumeration != NULL && enumeration->count == 3);
+    assert(enumeration->members[0] == CC_IR_VOID);
+    assert(enumeration->members[1] == CC_IR_I32);
+    assert(cc_ir_type_info(f.module, enumeration->members[2])->kind ==
+           CC_IR_TYPE_TUPLE);
+    CcIrFunction *produce = f.module->functions;
+    CcIrFunction *main_fn = produce->next;
+    assert(main_fn != NULL && main_fn->block_count == 8);
+    CcIrInstruction *make = find_instruction(produce, CC_IR_MAKE_ENUM);
+    CcIrInstruction *unit = find_instruction(main_fn, CC_IR_MAKE_ENUM);
+    CcIrInstruction *is = find_instruction(main_fn, CC_IR_ENUM_IS);
+    CcIrInstruction *get = find_instruction(main_fn, CC_IR_ENUM_GET);
+    CcIrInstruction *number = find_instruction(main_fn, CC_IR_CONST_I32);
+    assert(make && unit && is && get && number);
+    assert(make->slot == 2 && make->type == enumeration->id);
+    assert(unit->slot == 0 && unit->lhs == CC_IR_NONE);
+    assert(get->slot == 2 && get->type == enumeration->members[2]);
+    assert(main_fn->blocks->terminator == CC_IR_BRANCH);
+
+    unsigned int calls = 0, tests = 0, projections = 0;
+    for (CcIrBlock *block = main_fn->blocks; block != NULL;
+         block = block->next)
+        for (CcIrInstruction *i = block->first; i != NULL; i = i->next) {
+            if (i->op == CC_IR_CALL) calls++;
+            if (i->op == CC_IR_ENUM_IS) tests++;
+            if (i->op == CC_IR_ENUM_GET) {
+                projections++;
+                assert(block != main_fn->blocks);
+            }
+        }
+    assert(calls == 1 && tests == 3 && projections == 2);
+
+    uint32_t old = make->slot;
+    make->slot = enumeration->count;
+    expect_invalid(f.module, "IR verifier: invalid enum constructor");
+    make->slot = old;
+    old = make->lhs;
+    make->lhs = CC_IR_NONE;
+    expect_invalid(f.module, "IR verifier: invalid enum constructor");
+    make->lhs = old;
+    CcIrType saved_type = make->type;
+    make->type = CC_IR_BOOL;
+    expect_invalid(f.module, "IR verifier: invalid enum constructor");
+    make->type = saved_type;
+    old = unit->lhs;
+    unit->lhs = number->result;
+    expect_invalid(f.module, "IR verifier: invalid enum constructor");
+    unit->lhs = old;
+    unit->slot = 1;
+    expect_invalid(f.module, "IR verifier: invalid enum constructor");
+    unit->slot = 0;
+    old = is->slot;
+    is->slot = enumeration->count;
+    expect_invalid(f.module, "IR verifier: invalid enum access");
+    is->slot = old;
+    saved_type = is->type;
+    is->type = CC_IR_I32;
+    expect_invalid(f.module, "IR verifier: invalid enum access");
+    is->type = saved_type;
+    old = is->lhs;
+    is->lhs = number->result;
+    expect_invalid(f.module, "IR verifier: invalid enum access");
+    is->lhs = old;
+    old = get->slot;
+    get->slot = enumeration->count;
+    expect_invalid(f.module, "IR verifier: invalid enum access");
+    get->slot = old;
+    saved_type = get->type;
+    get->type = CC_IR_BOOL;
+    expect_invalid(f.module, "IR verifier: invalid enum access");
+    get->type = saved_type;
+    old = get->lhs;
+    get->lhs = CC_IR_NONE;
+    expect_invalid(f.module, "IR verifier: invalid enum access");
+    get->lhs = old;
+    old = main_fn->blocks->target;
+    main_fn->blocks->target = main_fn->block_count;
+    expect_invalid(f.module, "IR verifier: invalid block terminator");
+    main_fn->blocks->target = old;
+
+    enumeration->count = 0;
+    expect_invalid(f.module, "IR verifier: invalid enum type");
+    enumeration->count = 3;
+    saved_type = enumeration->members[2];
+    enumeration->members[2] = enumeration->id;
+    expect_invalid(f.module, "IR verifier: invalid enum variant type");
+    enumeration->members[2] = saved_type;
+    CcSourceSpan saved_name = enumeration->field_names[0];
+    enumeration->field_names[0] = enumeration->field_names[1];
+    expect_invalid(f.module, "IR verifier: duplicate enum variant");
+    enumeration->field_names[0] = saved_name;
+    saved_name = enumeration->name;
+    enumeration->name.end = (uint32_t)f.module->file->length + 1;
+    expect_invalid(f.module, "IR verifier: invalid enum type");
+    enumeration->name = saved_name;
+    CcIrTypeInfo duplicate = *enumeration;
+    duplicate.id = f.module->type_count;
+    duplicate.next = NULL;
+    CcIrTypeInfo *last = f.module->last_type;
+    last->next = &duplicate;
+    f.module->type_count++;
+    expect_invalid(f.module, "IR verifier: duplicate composite type");
+    f.module->type_count--;
+    last->next = NULL;
+
+    CcIrError error;
+    assert(cc_ir_verify(f.module, &error));
+    FILE *out = tmpfile();
+    assert(out != NULL && cc_ir_print(out, f.module));
+    rewind(out);
+    char text[22000];
+    size_t n = fread(text, 1, sizeof(text) - 1, out);
+    text[n] = '\0';
+    assert(strstr(text, "enum Event {") != NULL);
+    assert(strstr(text, "enum.make") != NULL);
+    assert(strstr(text, "enum.is") != NULL);
+    assert(strstr(text, "enum.get") != NULL);
+    assert(strstr(text, "condbr") != NULL);
+    assert(fclose(out) == 0);
+    out = tmpfile();
+    assert(out != NULL && cc_c_emit(out, f.module, &error));
+    rewind(out);
+    n = fread(text, 1, sizeof(text) - 1, out);
+    text[n] = '\0';
+    assert(strstr(text, "uint32_t tag;") != NULL);
+    assert(strstr(text, ".tag !=") != NULL);
+    assert(strstr(text, "union {") != NULL);
+    assert(fclose(out) == 0);
+    fixture_destroy(&f);
+}
+
 static void test_for_range_cfg_and_bounds_once(void)
 {
     Fixture f;
@@ -1195,6 +1344,7 @@ int main(void)
     test_invalid_optional_ir();
     test_optional_access_ir_and_verifier();
     test_optional_match_cfg_and_verifier();
+    test_enum_match_cfg_and_verifier();
     test_for_range_cfg_and_bounds_once();
     test_bitwise_wrapping_and_compound_ir();
     test_array_ir_and_verifier();

@@ -1,0 +1,7 @@
+enum Packed { Array([2]i32), Empty }
+fn main() -> i32 {
+    match Packed.Array([20, 22]) {
+        Packed.Array(values) => { return values[0] + values[1]; },
+        Packed.Empty => { return 0; },
+    }
+}

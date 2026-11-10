@@ -1,0 +1,5 @@
+fn main() -> i32 {
+    match 42 {
+        Item.Value(x) => { return x; },
+    }
+}

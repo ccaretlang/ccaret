@@ -106,6 +106,23 @@ for case in optional_match_some optional_match_none \
     build_run "$case" 42
 done
 
+for case in enum_basic enum_unit enum_reversed enum_tuple enum_struct \
+    enum_array enum_optional enum_nested enum_copy enum_call \
+    enum_call_unit enum_flow enum_shadow enum_bool enum_pointer \
+    enum_slice enum_unit_payload enum_forward; do
+    build_run "$case" 42
+done
+"$binary" emit-ir "$root/tests/fixtures/build_enum_tuple.caret" \
+    -o "$out/enum_tuple.ir"
+grep -q 'enum Packet {' "$out/enum_tuple.ir"
+grep -q 'enum.make' "$out/enum_tuple.ir"
+grep -q 'enum.is' "$out/enum_tuple.ir"
+grep -q 'enum.get' "$out/enum_tuple.ir"
+grep -q 'tuple.get' "$out/enum_tuple.ir"
+grep -q 'condbr' "$out/enum_tuple.ir"
+grep -q 'uint32_t tag;' "$out/compiled_enum_tuple.c"
+grep -q 'if (r.*\.tag !=' "$out/compiled_enum_tuple.c"
+
 "$binary" emit-ir "$root/tests/fixtures/build_optional_match_tuple.caret" \
     -o "$out/optional_match_tuple.ir"
 grep -q 'optional.has' "$out/optional_match_tuple.ir"
@@ -260,6 +277,10 @@ for case in hello call factorial while shortcircuit boolean \
     optional_match_call optional_match_call_none optional_match_shadow \
     optional_match_direct \
     optional_match_unit optional_match_inner_none optional_match_loop \
+    enum_basic enum_unit enum_reversed enum_tuple enum_struct \
+    enum_array enum_optional enum_nested enum_copy enum_call \
+    enum_call_unit enum_flow enum_shadow enum_bool enum_pointer \
+    enum_slice enum_unit_payload enum_forward \
     subrange_basic subrange_write subrange_nested subrange_slice \
     subrange_empty subrange_flow subrange_temporary_slice \
     subrange_struct subrange_tuple subrange_bool subrange_order; do
@@ -467,10 +488,44 @@ grep -q 'tuple destructuring arity mismatch' \
     "$out/optional_match_wrong_tuple.err"
 grep -q 'not all control-flow paths return a value' \
     "$out/optional_match_partial_return.err"
-grep -q 'expected `some` or `none` match arm' \
+grep -q 'expected `.` after enum type in match arm' \
     "$out/optional_match_invalid_arm.err"
 grep -q 'expected `=>` after match pattern' \
     "$out/optional_match_missing_arrow.err"
+
+for case in enum_missing_arm enum_duplicate_arm enum_unknown_arm \
+    enum_wrong_owner enum_wrong_payload enum_unit_argument \
+    enum_missing_argument enum_extra_argument enum_leak enum_immutable \
+    enum_wrong_tuple enum_empty enum_duplicate_variant enum_recursive \
+    enum_void_payload enum_nominal enum_nonenum enum_partial_return \
+    enum_payload_pattern enum_unit_pattern enum_shadow_type; do
+    if "$binary" build "$root/tests/fixtures/build_$case.caret" \
+        -o "$out/invalid_$case" > /dev/null 2> "$out/$case.err"; then
+        echo "build: invalid enum case $case must fail" >&2
+        exit 1
+    fi
+done
+grep -q 'non-exhaustive enum match' "$out/enum_missing_arm.err"
+grep -q 'duplicate enum match arm' "$out/enum_duplicate_arm.err"
+grep -q 'unknown enum variant' "$out/enum_unknown_arm.err"
+grep -q 'enum match arm must name the scrutinee enum' "$out/enum_wrong_owner.err"
+grep -q 'type mismatch' "$out/enum_wrong_payload.err"
+grep -q 'unit enum variant takes no arguments' "$out/enum_unit_argument.err"
+grep -q 'enum variant requires a payload' "$out/enum_missing_argument.err"
+grep -q 'enum constructor expects one payload argument' "$out/enum_extra_argument.err"
+grep -q 'undefined name' "$out/enum_leak.err"
+grep -q 'cannot assign to immutable binding' "$out/enum_immutable.err"
+grep -q 'tuple destructuring arity mismatch' "$out/enum_wrong_tuple.err"
+grep -q 'enum must declare a variant' "$out/enum_empty.err"
+grep -q 'duplicate enum variant' "$out/enum_duplicate_variant.err"
+grep -q 'recursive enum value type' "$out/enum_recursive.err"
+grep -q 'enum payload cannot be void' "$out/enum_void_payload.err"
+grep -q 'type mismatch' "$out/enum_nominal.err"
+grep -q 'match requires an optional value or enum value' "$out/enum_nonenum.err"
+grep -q 'not all control-flow paths return a value' "$out/enum_partial_return.err"
+grep -q 'enum match payload pattern mismatch' "$out/enum_payload_pattern.err"
+grep -q 'enum match payload pattern mismatch' "$out/enum_unit_pattern.err"
+grep -q 'only direct function calls are supported' "$out/enum_shadow_type.err"
 
 if "$binary" build "$root/tests/fixtures/build_invalid_main.caret" \
     -o "$out/invalid_main" > /dev/null 2> "$out/invalid_main.err"; then

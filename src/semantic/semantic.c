@@ -15,6 +15,7 @@ typedef enum {
     SEM_ARRAY,
     SEM_TUPLE,
     SEM_STRUCT,
+    SEM_ENUM,
     SEM_UNTYPED_INTEGER,
     SEM_RANGE
 } SemKind;
@@ -42,11 +43,18 @@ typedef struct SemVariable SemVariable;
 typedef struct SemFunction SemFunction;
 typedef struct SemParameter SemParameter;
 typedef struct SemStruct SemStruct;
+typedef struct SemEnum SemEnum;
 
 struct SemStruct {
     const CcStructDeclaration *decl;
     unsigned int state; /* 0 pending, 1 resolving, 2 validated. */
     SemStruct *next;
+};
+
+struct SemEnum {
+    const CcEnumDeclaration *decl;
+    unsigned int state;
+    SemEnum *next;
 };
 
 struct SemElement {
@@ -63,6 +71,7 @@ struct SemType {
     SemElement *elements;
     size_t count;
     const CcStructDeclaration *struct_decl;
+    const CcEnumDeclaration *enum_decl;
 };
 
 struct SemVariable {
@@ -92,6 +101,7 @@ typedef struct {
     CcSemanticError *error;
     SemFunction *functions;
     SemStruct *structs;
+    SemEnum *enums;
     SemFunction *current_function;
     SemVariable *variables;
     unsigned int depth;
@@ -237,6 +247,7 @@ static bool same_type(const SemType *a, const SemType *b)
     case SEM_INTEGER:
     case SEM_FLOAT: return a->primitive == b->primitive;
     case SEM_STRUCT: return a->struct_decl == b->struct_decl;
+    case SEM_ENUM: return a->enum_decl == b->enum_decl;
     case SEM_OPTIONAL:
     case SEM_RANGE: return same_type(a->inner, b->inner);
     case SEM_POINTER:
@@ -346,6 +357,23 @@ static SemStruct *find_struct(SemContext *ctx, CcSourceSpan name)
     return NULL;
 }
 
+static SemEnum *find_enum(SemContext *ctx, CcSourceSpan name)
+{
+    for (SemEnum *entry = ctx->enums; entry != NULL; entry = entry->next)
+        if (same_name(ctx, name, entry->decl->name)) return entry;
+    return NULL;
+}
+
+static const CcEnumVariant *find_variant(SemContext *ctx,
+                                        const CcEnumDeclaration *decl,
+                                        CcSourceSpan name)
+{
+    for (const CcEnumVariant *variant = decl->variants; variant != NULL;
+         variant = variant->next)
+        if (same_name(ctx, variant->name, name)) return variant;
+    return NULL;
+}
+
 static SemType *resolve_type(SemContext *ctx, const CcType *node)
 {
     if (node == NULL) return NULL;
@@ -361,6 +389,13 @@ static SemType *resolve_type(SemContext *ctx, const CcType *node)
         if (record != NULL) {
             SemType *type = new_type(ctx, SEM_STRUCT, node->span);
             if (type != NULL) type->struct_decl = record->decl;
+            return type;
+        }
+
+        SemEnum *enumeration = find_enum(ctx, node->span);
+        if (enumeration != NULL) {
+            SemType *type = new_type(ctx, SEM_ENUM, node->span);
+            if (type != NULL) type->enum_decl = enumeration->decl;
             return type;
         }
 
@@ -431,6 +466,7 @@ static SemType *resolve_type(SemContext *ctx, const CcType *node)
 }
 
 static bool validate_struct(SemContext *ctx, SemStruct *record);
+static bool validate_enum(SemContext *ctx, SemEnum *record);
 
 static bool validate_struct_type(SemContext *ctx, const SemType *type,
                                  CcSourceSpan span)
@@ -443,6 +479,10 @@ static bool validate_struct_type(SemContext *ctx, const SemType *type,
     if (type->kind == SEM_STRUCT) {
         SemStruct *target = find_struct(ctx, type->struct_decl->name);
         return target != NULL && validate_struct(ctx, target);
+    }
+    if (type->kind == SEM_ENUM) {
+        SemEnum *target = find_enum(ctx, type->enum_decl->name);
+        return target != NULL && validate_enum(ctx, target);
     }
     if (type->kind == SEM_ARRAY || type->kind == SEM_OPTIONAL ||
         type->kind == SEM_POINTER || type->kind == SEM_SLICE)
@@ -502,9 +542,71 @@ static bool register_structs(SemContext *ctx,
         record->next = ctx->structs;
         ctx->structs = record;
     }
-    for (SemStruct *record = ctx->structs; record != NULL;
-         record = record->next)
-        if (!validate_struct(ctx, record)) return false;
+    return true;
+}
+
+static bool register_enums(SemContext *ctx,
+                           const CcFunctionDeclaration *program)
+{
+    for (const CcFunctionDeclaration *node = program; node != NULL;
+         node = node->next) {
+        if (node->enum_decl == NULL) continue;
+        for (size_t i = 0; i < sizeof(primitives) / sizeof(primitives[0]); i++)
+            if (name_is(ctx, node->name, primitives[i].name)) {
+                fail(ctx, node->name, "enum name conflicts with builtin");
+                return false;
+            }
+        if (find_enum(ctx, node->name) != NULL ||
+            find_struct(ctx, node->name) != NULL) {
+            fail(ctx, node->name, "duplicate nominal type name");
+            return false;
+        }
+        SemEnum *record = arena_alloc(ctx, sizeof(*record), node->span);
+        if (record == NULL) return false;
+        record->decl = node->enum_decl;
+        record->state = 0;
+        record->next = ctx->enums;
+        ctx->enums = record;
+    }
+    return true;
+}
+
+static bool validate_enum(SemContext *ctx, SemEnum *record)
+{
+    if (record->state == 2) return true;
+    if (record->state == 1) {
+        fail(ctx, record->decl->name, "recursive enum value type");
+        return false;
+    }
+    record->state = 1;
+    if (record->decl->variants == NULL) {
+        fail(ctx, record->decl->name, "enum must declare a variant");
+        return false;
+    }
+    uint32_t count = 0;
+    for (const CcEnumVariant *part = record->decl->variants; part != NULL;
+         part = part->next) {
+        if (++count > 65536U) {
+            fail(ctx, part->name, "too many enum variants");
+            return false;
+        }
+        for (const CcEnumVariant *prior = record->decl->variants;
+             prior != part; prior = prior->next)
+            if (same_name(ctx, prior->name, part->name)) {
+                fail(ctx, part->name, "duplicate enum variant");
+                return false;
+            }
+        if (part->payload == NULL) continue;
+        SemType *payload = resolve_type(ctx, part->payload);
+        if (payload == NULL) return false;
+        if (payload->kind == SEM_VOID) {
+            fail(ctx, part->payload->span, "enum payload cannot be void");
+            return false;
+        }
+        if (!validate_struct_type(ctx, payload, part->payload->span))
+            return false;
+    }
+    record->state = 2;
     return true;
 }
 
@@ -1032,6 +1134,40 @@ static SemType *check_expr(SemContext *ctx, const CcExpression *expr,
     case CC_AST_EXPRESSION_CALL: {
         const CcExpression *callee = expr->call.callee;
 
+        if (callee->kind == CC_AST_EXPRESSION_MEMBER &&
+            callee->member.operand->kind == CC_AST_EXPRESSION_IDENTIFIER &&
+            find_variable(ctx,
+                callee->member.operand->identifier_name) == NULL) {
+            SemEnum *enumeration = find_enum(ctx,
+                callee->member.operand->identifier_name);
+            if (enumeration != NULL) {
+                const CcEnumVariant *variant = find_variant(ctx,
+                    enumeration->decl, callee->member.name);
+                if (variant == NULL) {
+                    fail(ctx, callee->member.name, "unknown enum variant");
+                    return NULL;
+                }
+                if (variant->payload == NULL) {
+                    fail(ctx, expr->span,
+                         "unit enum variant takes no arguments");
+                    return NULL;
+                }
+                const CcCallArgument *arg = expr->call.arguments;
+                if (arg == NULL || arg->next != NULL) {
+                    fail(ctx, expr->span,
+                         "enum constructor expects one payload argument");
+                    return NULL;
+                }
+                SemType *payload = resolve_type(ctx, variant->payload);
+                if (payload == NULL ||
+                    check_expr(ctx, arg->value, payload) == NULL) return NULL;
+                SemType *type = new_type(ctx, SEM_ENUM, expr->span);
+                if (type == NULL) return NULL;
+                type->enum_decl = enumeration->decl;
+                return coerce(ctx, type, expected, expr->span);
+            }
+        }
+
         if (callee->kind != CC_AST_EXPRESSION_IDENTIFIER) {
             fail(ctx, callee->span, "only direct function calls are supported");
             return NULL;
@@ -1181,6 +1317,27 @@ static SemType *check_expr(SemContext *ctx, const CcExpression *expr,
         return coerce(ctx, collection->inner, expected, expr->span);
     }
     case CC_AST_EXPRESSION_MEMBER: {
+        if (expr->member.operand->kind == CC_AST_EXPRESSION_IDENTIFIER &&
+            find_variable(ctx, expr->member.operand->identifier_name) == NULL) {
+            SemEnum *enumeration = find_enum(ctx,
+                expr->member.operand->identifier_name);
+            if (enumeration != NULL) {
+                const CcEnumVariant *variant = find_variant(ctx,
+                    enumeration->decl, expr->member.name);
+                if (variant == NULL) {
+                    fail(ctx, expr->member.name, "unknown enum variant");
+                    return NULL;
+                }
+                if (variant->payload != NULL) {
+                    fail(ctx, expr->span, "enum variant requires a payload");
+                    return NULL;
+                }
+                SemType *type = new_type(ctx, SEM_ENUM, expr->span);
+                if (type == NULL) return NULL;
+                type->enum_decl = enumeration->decl;
+                return coerce(ctx, type, expected, expr->span);
+            }
+        }
         SemType *base = check_expr(ctx, expr->member.operand, NULL);
 
         if (base == NULL) return NULL;
@@ -1250,14 +1407,69 @@ static bool check_match(SemContext *ctx, const CcMatch *match)
     if (type == NULL) return false;
     type = finalize_type(ctx, type, match->scrutinee->span);
     if (type == NULL) return false;
+    if (type->kind == SEM_ENUM) {
+        for (const CcMatchArm *arm = match->arms; arm != NULL;
+             arm = arm->next) {
+            if (arm->enum_type.file_id == CC_FILE_ID_INVALID ||
+                !same_name(ctx, arm->enum_type, type->enum_decl->name)) {
+                fail(ctx, arm->span,
+                     "enum match arm must name the scrutinee enum");
+                return false;
+            }
+            const CcEnumVariant *variant = find_variant(ctx, type->enum_decl,
+                                                          arm->variant);
+            if (variant == NULL) {
+                fail(ctx, arm->variant, "unknown enum variant");
+                return false;
+            }
+            for (const CcMatchArm *previous = match->arms;
+                 previous != arm; previous = previous->next)
+                if (same_name(ctx, previous->variant, arm->variant)) {
+                    fail(ctx, arm->variant, "duplicate enum match arm");
+                    return false;
+                }
+            if ((variant->payload == NULL) != (arm->payload == NULL)) {
+                fail(ctx, arm->span, "enum match payload pattern mismatch");
+                return false;
+            }
+            SemVariable *saved = ctx->variables;
+            ctx->depth++;
+            SemType *payload = variant->payload == NULL ? NULL
+                : resolve_type(ctx, variant->payload);
+            bool ok = !ctx->failed &&
+                (payload == NULL || bind_pattern(ctx, arm->payload,
+                                                  payload, false)) &&
+                check_block(ctx, arm->body, false);
+            ctx->variables = saved;
+            ctx->depth--;
+            if (!ok) return false;
+        }
+        for (const CcEnumVariant *variant = type->enum_decl->variants;
+             variant != NULL; variant = variant->next) {
+            bool found = false;
+            for (const CcMatchArm *arm = match->arms; arm != NULL;
+                 arm = arm->next)
+                if (same_name(ctx, variant->name, arm->variant)) found = true;
+            if (!found) {
+                fail(ctx, match->span, "non-exhaustive enum match");
+                return false;
+            }
+        }
+        return true;
+    }
     if (type->kind != SEM_OPTIONAL) {
-        fail(ctx, match->scrutinee->span, "match requires an optional value");
+        fail(ctx, match->scrutinee->span,
+             "match requires an optional value or enum value");
         return false;
     }
     bool has_some = false;
     bool has_none = false;
     for (const CcMatchArm *arm = match->arms; arm != NULL;
          arm = arm->next) {
+        if (arm->enum_type.file_id != CC_FILE_ID_INVALID) {
+            fail(ctx, arm->span, "optional match expects some or none arms");
+            return false;
+        }
         if (arm->is_some ? has_some : has_none) {
             fail(ctx, arm->span, "duplicate optional match arm");
             return false;
@@ -1584,13 +1796,19 @@ static bool match_guarantees_return(const CcMatch *match)
 {
     bool some = false;
     bool none = false;
+    bool has_enum_arm = false;
+    bool has_arm = false;
     for (const CcMatchArm *arm = match->arms; arm != NULL;
          arm = arm->next) {
         if (!block_guarantees_return(arm->body)) return false;
-        if (arm->is_some) some = true;
+        has_arm = true;
+        if (arm->enum_type.file_id != CC_FILE_ID_INVALID)
+            has_enum_arm = true;
+        else if (arm->is_some) some = true;
         else none = true;
     }
-    return some && none;
+    /* Exhaustiveness/uniqueness has already been proven by check_match. */
+    return has_enum_arm ? has_arm : some && none;
 }
 
 static bool block_guarantees_return(const CcBlock *block)
@@ -1628,9 +1846,13 @@ static bool register_functions(SemContext *ctx,
 
     for (const CcFunctionDeclaration *decl = functions; decl != NULL;
          decl = decl->next) {
-        if (decl->struct_decl != NULL) continue;
+        if (decl->struct_decl != NULL || decl->enum_decl != NULL) continue;
         if (find_struct(ctx, decl->name) != NULL) {
             fail(ctx, decl->name, "function name conflicts with struct");
+            return false;
+        }
+        if (find_enum(ctx, decl->name) != NULL) {
+            fail(ctx, decl->name, "function name conflicts with enum");
             return false;
         }
         if (find_function(ctx, decl->name) != NULL) {
@@ -1711,7 +1933,12 @@ bool cc_semantic_check(const CcSourceFile *file,
     ctx.error = error;
 
     if (!register_structs(&ctx, functions) ||
-        !register_functions(&ctx, functions)) return false;
+        !register_enums(&ctx, functions)) return false;
+    for (SemStruct *entry = ctx.structs; entry != NULL; entry = entry->next)
+        if (!validate_struct(&ctx, entry)) return false;
+    for (SemEnum *entry = ctx.enums; entry != NULL; entry = entry->next)
+        if (!validate_enum(&ctx, entry)) return false;
+    if (!register_functions(&ctx, functions)) return false;
 
     for (SemFunction *function = ctx.functions; function != NULL;
          function = function->next) {

@@ -1,0 +1,6 @@
+enum Outcome { Ok(i32), Err }
+fn main() -> i32 {
+    let Outcome = 20;
+    let x = Outcome.Ok(22);
+    return 42;
+}

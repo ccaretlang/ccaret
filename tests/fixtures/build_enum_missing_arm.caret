@@ -1,0 +1,7 @@
+enum Status { Ok(i32), Pending, Failed }
+fn main() -> i32 {
+    match Status.Ok(42) {
+        Status.Ok(n) => { return n; },
+        Status.Pending => { return 0; },
+    }
+}

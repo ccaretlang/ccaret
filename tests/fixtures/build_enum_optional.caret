@@ -1,0 +1,12 @@
+enum Pack { Present(?i32), Absent }
+fn main() -> i32 {
+    match Pack.Present(some(42)) {
+        Pack.Absent => { return 0; },
+        Pack.Present(value) => {
+            match value {
+                none => { return 0; },
+                some(x) => { return x; },
+            }
+        },
+    }
+}
