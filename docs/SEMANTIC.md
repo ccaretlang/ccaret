@@ -71,8 +71,16 @@ are arena-allocated; it does not yet annotate the AST with persistent
 - Check tuple patterns (including nested destructuring), tuple arity,
   parameter/return types, `if`/`while` conditions, integer `for` ranges,
   and `break`/`continue` placement.
+- Type-check `match` statements on optional `?T`: require exactly one
+  `some(pattern)` and one `none` arm in either order, reject duplicate
+  variants or missing coverage, and bind `T` immutably only within the
+  `some` arm. Tuple patterns reuse `let` destructuring and arity checks.
+  The scrutinee is evaluated once; checking each body preserves normal
+  loop nesting, assignment and return rules. Imported references inside
+  arms undergo the same module-linker namespace resolution.
 - Conservatively check that functions returning a non-`void` type return
-  along every path made of `return` and complete `if`/`else` chains.
+  along every path made of `return`, complete `if`/`else` chains and
+  exhaustive optional matches whose two arms return.
   Nontrivial loop termination is not yet proven.
 
 ## Limits of this first pass
@@ -105,8 +113,9 @@ are arena-allocated; it does not yet annotate the AST with persistent
 - `none` requires an optional type context; result type inference is
   deliberately local, not global constraint solving.
 - Optional `.value` is always checked at runtime; there is no
-  compile-time proof/flow narrowing from `.has`, no exhaustive match,
-  optional chaining or implicit unwrap.
+  compile-time proof/flow narrowing from `.has`, enum/`Result` match,
+  optional chaining or implicit unwrap. `match` is a statement only,
+  limited to the two variants of `?T`, without guards or wildcard arms.
 - Only the first semantic error is reported. Definite assignment across all
   paths, exhaustive control-flow analysis, liveness, constant propagation,
   and persistent typed IR are future work.

@@ -64,7 +64,10 @@ The caller must pass a nonzero divisor. Division overflow and trap rules are in 
 - Division by zero traps. Signed minimum divided by `-1` traps. Slice indexing is checked, and redundant checks may be optimized away.
 - In the executable bootstrap, `?T` supports `.has` inspection and
   checked `.value` extraction; accessing `.value` on `none` traps.
-  Exhaustive optional pattern matching remains planned.
+  Exhaustive `match` statements distinguish `some(pattern)` and `none`;
+  both arms are mandatory and the scrutinee runs exactly once. The
+  immutable `some` binding is scoped to that arm. Enum and `Result`
+  matching, guards, wildcard arms and match expressions remain planned.
 - A fatal trap does not unwind the stack and does not guarantee that deferred cleanup runs.
 - Release optimization settings must not change these source-level rules.
 

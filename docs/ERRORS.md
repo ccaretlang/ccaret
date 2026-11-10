@@ -11,7 +11,7 @@ Recoverable errors are ordinary values. C^ has no exception unwinding. A fatal `
   `bool`, while `optional.value` extracts `T` and **aborts** if
   the optional is `none`. Neither uses an implicit conversion.
   This checked, trap-on-absence access is **not** a recoverable error
-  handler; exhaustive `match` and optional chaining are still planned.
+  handler; optional chaining is still planned.
   The member names are bootstrap spellings, not frozen syntax.
 - `?*T` can use a null representation when the target defines one. A general `?T` may need a tag.
 
@@ -33,6 +33,25 @@ fn main() -> i32 {
     return 0;
 }
 ```
+
+An executable, exhaustive optional `match` statement can instead bind
+the payload without inspecting `.has` or manually calling `.value`:
+
+```caret
+fn extract(item: ?i32) -> i32 {
+    match item {
+        some(value) => { return value; },
+        none => { return 0; },
+    }
+}
+```
+
+Exactly one arm of each variant is required. A duplicate or missing arm,
+non-optional scrutinee, incompatible tuple destructuring or use of a
+`some` binder outside its arm is a compile-time error. The scrutinee
+evaluates once; there is no payload read on the `none` path. Only
+optional statement matching is implemented so far, not enum/`Result`
+matching or `match` expressions.
 
 ## `Result<T,E>`: success or failure
 

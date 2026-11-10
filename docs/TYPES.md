@@ -55,10 +55,15 @@ The executable bootstrap supports `?T` optionals with constructors
 `maybe.value` has type `T` and **aborts** if the optional contains
 `none`, before reading the payload. The same rule applies to
 `??T`, optional arrays, structs, tuples, slices and raw pointers;
-optional values are passed and copied by value. There is no automatic
-unwrapping, optional chaining, exhaustiveness checking or flow-sensitive
-refinement after a presence check. The `.has`/`.value` syntax is a
-bootstrap subset rather than a frozen surface-language choice.
+optional values are passed and copied by value. A `match` statement
+exhaustively distinguishes `some(binding_pattern)` and `none`; both arms
+are required and duplicates are rejected. Within `some`, the immutable
+payload binding has type `T` and is scoped to that arm; tuple payloads
+may be destructured. The optional scrutinee is evaluated once. There is
+no automatic unwrapping, optional chaining, `match` expression, general
+enum matching or flow-sensitive refinement after a presence check.
+The `.has`/`.value` syntax is a bootstrap subset rather than a frozen
+surface-language choice.
 
 Arrays and slices are different types. Any implicit array to slice conversion needs an exact rule. A slice does not own memory and cannot stop a use-after-free.
 

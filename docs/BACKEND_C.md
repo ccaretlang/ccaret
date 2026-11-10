@@ -48,6 +48,13 @@ entry point is `fn main() -> i32`.
   `optional.has` obtains the presence flag as `bool`;
   `optional.value` obtains the full typed payload, aborting if absent,
   including nested and composite payloads. The source is evaluated once.
+- Exhaustive `match optional_expression { some(pattern) => { ... },
+  none => { ... }, }` statements: an immutable payload binding (including
+  tuple destructuring), order-independent arms, nested matches, fallthrough
+  to following statements and fully-returning arms. Each optional value is
+  evaluated once and lowered to verified IR `optional.has`/`condbr` with
+  `optional.unwrap` exclusively on the `some` path. Enum matching,
+  match expressions, wildcards and guards are not implemented.
 - Fixed arrays `[N]T` with `[x, y]` literals (including `[]` with a
   type annotation), nested element types, by-value copies, parameters,
   returns, indexed reads, single-level indexed writes to `var` locals,
@@ -101,6 +108,9 @@ empty structs are not standard C17. Optionals use a `bool has` tag and a
 typed `value` payload. Checked extraction emits an explicit
 `if (!r.has) abort();` before reading `r.value`, so the uninitialized
 or semantically absent payload of `none` is never accessed.
+For a `match`, the emitted C branches on `has`; the IR unwrap (and its
+safety guard) appears only in the `some` arm. The `none` arm never reads
+the payload. Matching requires no direct AST-to-C special case.
 Arrays use a fixed `elements[N]` field, or a
 dummy byte for `N = 0`, because zero-length C arrays are not standard
 C17. Array lengths are limited to 65536 in this bootstrap backend.

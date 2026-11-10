@@ -3052,6 +3052,59 @@ static void test_optional_access_ast(void)
     fixture_destroy(&f);
 }
 
+static void test_optional_match_ast(void)
+{
+    ParserFixture f;
+    fixture_init(&f,
+        "fn main(x: ?(i32, i32)) -> i32 {"
+        " match x { none => { return 0; },"
+        " some((a, b)) => { return a + b; }, } }");
+    CcFunctionDeclaration *fn = cc_parser_parse_program(&f.parser);
+    assert(fn != NULL && !f.parser.failed);
+    CcStatement *statement = fn->body->first;
+    assert(statement->kind == CC_AST_STATEMENT_MATCH);
+    CcMatch *match = statement->match_statement;
+    assert(match != NULL && match->scrutinee->kind ==
+           CC_AST_EXPRESSION_IDENTIFIER);
+    CcMatchArm *none = match->arms;
+    assert(none != NULL && !none->is_some && none->payload == NULL);
+    assert(none->body->first->kind == CC_AST_STATEMENT_RETURN);
+    CcMatchArm *some = none->next;
+    assert(some != NULL && some->is_some && some->next == NULL);
+    assert(some->payload->kind == CC_AST_PATTERN_TUPLE);
+    assert(some->payload->tuple_elements->pattern->kind ==
+           CC_AST_PATTERN_NAME);
+    assert(some->body->first->kind == CC_AST_STATEMENT_RETURN);
+    fixture_destroy(&f);
+
+    static const struct { const char *source; const char *error; } cases[] = {
+        { "fn f(x: ?i32) { match x { other => {} } }",
+          "expected `some` or `none` match arm" },
+        { "fn f(x: ?i32) { match x { some => {} } }",
+          "expected `(` after `some` match arm" },
+        { "fn f(x: ?i32) { match x { some(a => {} } }",
+          "expected `)` after `some` match pattern" },
+        { "fn f(x: ?i32) { match x { none {} } }",
+          "expected `=>` after match pattern" },
+        { "fn f(x: ?i32) { match x { none => return; } }",
+          "expected `{`" },
+        { "fn f(x: ?i32) { match x { none => {} some(a) => {} } }",
+          "expected `,` between match arms" },
+        { "fn f(x: ?i32) { match x { none => {}",
+          "expected `,` between match arms" }
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        fixture_init(&f, cases[i].source);
+        cc_parser_parse_program(&f.parser);
+        assert(f.parser.failed && f.parser.error != NULL);
+        if (strcmp(f.parser.error, cases[i].error) != 0)
+            fprintf(stderr, "optional match case %zu: expected %s, got %s\n",
+                    i, cases[i].error, f.parser.error);
+        assert(strcmp(f.parser.error, cases[i].error) == 0);
+        fixture_destroy(&f);
+    }
+}
+
 int main(void)
 {
     test_simple_function();
@@ -3131,6 +3184,7 @@ int main(void)
     test_unsafe_pointer_statements();
     test_slice_intrinsic_ast();
     test_optional_access_ast();
+    test_optional_match_ast();
     test_subrange_ast();
     test_parse_errors();
     test_empty_source_without_functions();

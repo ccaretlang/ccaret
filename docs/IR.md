@@ -66,6 +66,18 @@ Compound assignments preserve the old target value in a slot across
 evaluation of the right-hand side, then perform a checked arithmetic or
 bitwise operation and write the result once.
 
+An exhaustive optional `match` does not introduce a new IR opcode.
+Lowering evaluates its scrutinee exactly once, stores the typed `?T`
+value in a slot, emits `optional.has` followed by `condbr` to the `some`
+and `none` blocks, and emits `optional.unwrap` only within the `some`
+block. The resulting `T` value is destructured into immutable local
+slots if necessary; its bindings cannot escape the arm. Both arms branch
+to a join if they do not terminate. An unreachable join after two
+returning arms becomes a `trap`, just as for exhaustive `if` chains.
+The independent verifier continues to check CFG edges, register/slot
+types and optional operations before C generation. No backend-specific
+match interpretation is required.
+
 `for` ranges are lowered from syntax to CFG blocks, not represented as
 first-class range values in the backend. Start and end expressions are
 evaluated left-to-right exactly once into typed `i32` slots. The loop

@@ -1187,6 +1187,7 @@ static CcIf *parse_if(CcParser *parser);
 static CcWhile *parse_while(CcParser *parser);
 static CcLoop *parse_loop(CcParser *parser);
 static CcFor *parse_for(CcParser *parser);
+static CcMatch *parse_match(CcParser *parser);
 static CcStatement *parse_loop_keyword_statement(CcParser *parser,
                                                  CcStatementKind kind);
 
@@ -1326,6 +1327,21 @@ static CcBlock *parse_block(CcParser *parser)
             continue;
         }
 
+        if (parser->current.kind == CC_TOKEN_KW_MATCH) {
+            CcMatch *match = parse_match(parser);
+            if (parser->failed || match == NULL) break;
+
+            CcStatement *statement = allocate(parser, sizeof(*statement));
+            if (statement == NULL) break;
+            statement->kind = CC_AST_STATEMENT_MATCH;
+            statement->span = match->span;
+            statement->next = NULL;
+            statement->match_statement = match;
+            *link = statement;
+            link = &statement->next;
+            continue;
+        }
+
         if (parser->current.kind == CC_TOKEN_KW_UNSAFE) {
             CcToken keyword = parser->current;
             advance(parser);
@@ -1404,6 +1420,72 @@ static CcBlock *parse_block(CcParser *parser)
     block->first = first;
 
     return block;
+}
+
+static CcMatch *parse_match(CcParser *parser)
+{
+    CcToken keyword = parser->current;
+    advance(parser);
+    bool saved = parser->before_block;
+    parser->before_block = true;
+    CcExpression *scrutinee = parse_expression(parser);
+    parser->before_block = saved;
+    if (parser->failed || scrutinee == NULL) return NULL;
+
+    if (!expect(parser, CC_TOKEN_LBRACE, "expected `{` after match value",
+                NULL)) return NULL;
+    CcMatchArm *first = NULL;
+    CcMatchArm **link = &first;
+    while (!parser->failed && parser->current.kind != CC_TOKEN_RBRACE) {
+        if (parser->current.kind != CC_TOKEN_KW_SOME &&
+            parser->current.kind != CC_TOKEN_KW_NONE) {
+            report_error(parser, "expected `some` or `none` match arm");
+            return NULL;
+        }
+        CcToken variant = parser->current;
+        bool is_some = variant.kind == CC_TOKEN_KW_SOME;
+        advance(parser);
+        CcPattern *payload = NULL;
+        if (is_some) {
+            if (!expect(parser, CC_TOKEN_LPAREN,
+                        "expected `(` after `some` match arm", NULL))
+                return NULL;
+            payload = parse_pattern(parser);
+            if (parser->failed || payload == NULL) return NULL;
+            if (!expect(parser, CC_TOKEN_RPAREN,
+                        "expected `)` after `some` match pattern", NULL))
+                return NULL;
+        }
+        if (!expect(parser, CC_TOKEN_FAT_ARROW,
+                    "expected `=>` after match pattern", NULL)) return NULL;
+        CcBlock *body = parse_block(parser);
+        if (parser->failed || body == NULL) return NULL;
+
+        CcMatchArm *arm = allocate(parser, sizeof(*arm));
+        if (arm == NULL) return NULL;
+        arm->span = variant.span;
+        arm->span.end = body->span.end;
+        arm->is_some = is_some;
+        arm->payload = payload;
+        arm->body = body;
+        arm->next = NULL;
+        *link = arm;
+        link = &arm->next;
+        if (parser->current.kind == CC_TOKEN_RBRACE) break;
+        if (!expect(parser, CC_TOKEN_COMMA,
+                    "expected `,` between match arms", NULL)) return NULL;
+    }
+    CcToken end;
+    if (!expect(parser, CC_TOKEN_RBRACE, "expected `}` after match arms",
+                &end)) return NULL;
+
+    CcMatch *match = allocate(parser, sizeof(*match));
+    if (match == NULL) return NULL;
+    match->span = keyword.span;
+    match->span.end = end.span.end;
+    match->scrutinee = scrutinee;
+    match->arms = first;
+    return match;
 }
 
 static CcIf *parse_if(CcParser *parser)

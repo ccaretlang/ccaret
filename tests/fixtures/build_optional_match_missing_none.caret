@@ -1,0 +1,4 @@
+fn main() -> i32 {
+    let item: ?i32 = some(42);
+    match item { some(value) => { return value; } }
+}

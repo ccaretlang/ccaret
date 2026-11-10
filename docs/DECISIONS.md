@@ -24,7 +24,7 @@
 | P-003 | Signed arithmetic traps, unsigned wraps, explicit `+%`. | Exact overflow and cast rules, target lowering. |
 | P-004 | `*T` is proposed non-null raw pointer, `?*T` nullable. | Initial typed C17 pointer operations implemented; non-null guarantee, aliasing, provenance, escape safety and reference safety still open. |
 | P-005 | Ordinary structs and tuples have copy semantics. | Ownership and resource contracts. |
-| P-006 | `?T`, `Result<T,E>`, `try`, `defer`, `errdefer`. | `?T` now supports `some`/`none`, `.has` and checked `.value` as bootstrap forms; matching/exhaustiveness, `Result` propagation and cleanup remain open. |
+| P-006 | `?T`, `Result<T,E>`, `try`, `defer`, `errdefer`. | `?T` now supports `some`/`none`, `.has`, checked `.value` and exhaustive statement `match` with `some(pattern)` / `none` as executable bootstrap forms; final pattern syntax, enum matching, `Result` propagation and cleanup remain open. |
 | P-007 | One file per module, acyclic imports for now. | Bootstrap subset implemented for local root-relative source graphs, aliased imports and `pub` checks; final package layout, search roots and separate compilation remain open. |
 | P-008 | Typed non-SSA IR with explicit blocks. | Aggregate merges and ABI lowering. |
 | P-009 | UTF-8 source with ASCII identifiers for now. | Future Unicode policy. |

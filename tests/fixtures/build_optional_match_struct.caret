@@ -1,0 +1,8 @@
+struct Pair { first: i32, second: i32 }
+fn main() -> i32 {
+    let item: ?Pair = some(Pair { first: 20, second: 22 });
+    match item {
+        some(pair) => { return pair.first + pair.second; },
+        none => { return 0; },
+    }
+}

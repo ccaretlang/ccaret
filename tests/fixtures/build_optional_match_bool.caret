@@ -1,0 +1,7 @@
+fn main() -> i32 {
+    let item: ?bool = some(true);
+    match item {
+        some(flag) => { if flag { return 42; } return 0; },
+        none => { return 0; },
+    }
+}

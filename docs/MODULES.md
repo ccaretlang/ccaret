@@ -83,6 +83,11 @@ pub struct Point { pub x: i32, pub y: i32 }
   semantics, left-to-right evaluation and verified typed IR as local
   declarations. Types remain nominal, even if distinct modules declare
   structurally identical records.
+- The linker visits optional `match` scrutinees and both arm bodies.
+  Calls to imported functions inside either arm are rewritten, while a
+  `some(name)` binder shadows an import alias only inside its own arm.
+  The exhaustive optional match is lowered after linking into the
+  same independently verified CFG used for local functions.
 - Source diagnostics are mapped from the compiler's internal linked unit
   back to their originating file and location.
 

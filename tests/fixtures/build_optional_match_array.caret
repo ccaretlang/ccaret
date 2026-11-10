@@ -1,0 +1,7 @@
+fn main() -> i32 {
+    let item: ?[2]i32 = some([20, 22]);
+    match item {
+        some(array) => { return array[0] + array[1]; },
+        none => { return 0; },
+    }
+}

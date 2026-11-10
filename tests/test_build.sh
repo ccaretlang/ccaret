@@ -96,6 +96,23 @@ for case in optional_access_basic optional_access_none \
     build_run "$case" 42
 done
 
+for case in optional_match_some optional_match_none \
+    optional_match_reversed optional_match_tuple optional_match_nested \
+    optional_match_bool optional_match_array optional_match_struct \
+    optional_match_slice optional_match_pointer optional_match_flow \
+    optional_match_call optional_match_call_none optional_match_shadow \
+    optional_match_direct \
+    optional_match_unit optional_match_inner_none optional_match_loop; do
+    build_run "$case" 42
+done
+
+"$binary" emit-ir "$root/tests/fixtures/build_optional_match_tuple.caret" \
+    -o "$out/optional_match_tuple.ir"
+grep -q 'optional.has' "$out/optional_match_tuple.ir"
+grep -q 'optional.unwrap' "$out/optional_match_tuple.ir"
+grep -q 'condbr' "$out/optional_match_tuple.ir"
+grep -q 'tuple.get' "$out/optional_match_tuple.ir"
+
 "$binary" emit-ir "$root/tests/fixtures/build_optional_access_basic.caret" \
     -o "$out/optional_access_basic.ir"
 grep -q 'optional.has' "$out/optional_access_basic.ir"
@@ -236,6 +253,13 @@ for case in hello call factorial while shortcircuit boolean \
     optional_access_slice optional_access_pointer optional_access_call \
     optional_access_tuple optional_access_bool optional_access_flow \
     optional_access_field_collision optional_access_shortcircuit \
+    optional_match_some optional_match_none \
+    optional_match_reversed optional_match_tuple optional_match_nested \
+    optional_match_bool optional_match_array optional_match_struct \
+    optional_match_slice optional_match_pointer optional_match_flow \
+    optional_match_call optional_match_call_none optional_match_shadow \
+    optional_match_direct \
+    optional_match_unit optional_match_inner_none optional_match_loop \
     subrange_basic subrange_write subrange_nested subrange_slice \
     subrange_empty subrange_flow subrange_temporary_slice \
     subrange_struct subrange_tuple subrange_bool subrange_order; do
@@ -412,6 +436,41 @@ grep -q 'error: semantic: unknown optional member' \
 grep -q 'error: semantic: type mismatch' "$out/optional_access_bad_type.err"
 grep -q 'error: semantic: none requires an optional type context' \
     "$out/optional_access_none_infer.err"
+
+for case in optional_match_missing_some optional_match_missing_none \
+    optional_match_duplicate_some optional_match_duplicate_none \
+    optional_match_nonoptional optional_match_leak \
+    optional_match_immutable optional_match_wrong_tuple \
+    optional_match_partial_return optional_match_invalid_arm \
+    optional_match_missing_arrow; do
+    if "$binary" build "$root/tests/fixtures/build_$case.caret" \
+        -o "$out/invalid_$case" > /dev/null 2> "$out/$case.err"; then
+        echo "build: invalid optional match $case must fail" >&2
+        exit 1
+    fi
+done
+grep -q 'non-exhaustive optional match' \
+    "$out/optional_match_missing_some.err"
+grep -q 'non-exhaustive optional match' \
+    "$out/optional_match_missing_none.err"
+grep -q 'duplicate optional match arm' \
+    "$out/optional_match_duplicate_some.err"
+grep -q 'duplicate optional match arm' \
+    "$out/optional_match_duplicate_none.err"
+grep -q 'match requires an optional value' \
+    "$out/optional_match_nonoptional.err"
+grep -q 'error: semantic: undefined name' \
+    "$out/optional_match_leak.err"
+grep -q 'cannot assign to immutable binding' \
+    "$out/optional_match_immutable.err"
+grep -q 'tuple destructuring arity mismatch' \
+    "$out/optional_match_wrong_tuple.err"
+grep -q 'not all control-flow paths return a value' \
+    "$out/optional_match_partial_return.err"
+grep -q 'expected `some` or `none` match arm' \
+    "$out/optional_match_invalid_arm.err"
+grep -q 'expected `=>` after match pattern' \
+    "$out/optional_match_missing_arrow.err"
 
 if "$binary" build "$root/tests/fixtures/build_invalid_main.caret" \
     -o "$out/invalid_main" > /dev/null 2> "$out/invalid_main.err"; then

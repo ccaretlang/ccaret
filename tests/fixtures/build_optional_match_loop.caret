@@ -1,0 +1,11 @@
+fn main() -> i32 {
+    var total = 0;
+    loop {
+        let item: ?i32 = none;
+        match item {
+            some(value) => { total += value; },
+            none => { total += 42; break; },
+        }
+    }
+    return total;
+}

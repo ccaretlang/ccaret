@@ -671,6 +671,19 @@ static bool walk_block(Visitor *visitor, const CcBlock *block)
         case CC_AST_STATEMENT_IF:
             if (!walk_if(visitor, stmt->if_statement)) goto failed;
             break;
+        case CC_AST_STATEMENT_MATCH: {
+            const CcMatch *match = stmt->match_statement;
+            if (!walk_expr(visitor, match->scrutinee)) goto failed;
+            for (const CcMatchArm *arm = match->arms; arm != NULL;
+                 arm = arm->next) {
+                Binding *before = visitor->locals;
+                if ((arm->is_some &&
+                     !bind_pattern(visitor, arm->payload)) ||
+                    !walk_block(visitor, arm->body)) goto failed;
+                visitor->locals = before;
+            }
+            break;
+        }
         case CC_AST_STATEMENT_WHILE:
             if (!walk_expr(visitor, stmt->while_statement->condition) ||
                 !walk_block(visitor, stmt->while_statement->body))

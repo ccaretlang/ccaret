@@ -1,0 +1,9 @@
+fn main() -> i32 {
+    let value = 20;
+    let item: ?i32 = some(22);
+    match item {
+        some(value) => { let _inner = value + 20; },
+        none => { let value = 1; },
+    }
+    return value + 22;
+}

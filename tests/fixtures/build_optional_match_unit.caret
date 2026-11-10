@@ -1,0 +1,7 @@
+fn main() -> i32 {
+    let item: ?() = some(());
+    match item {
+        some(unit) => { let copy = unit; return 42; },
+        none => { return 0; },
+    }
+}

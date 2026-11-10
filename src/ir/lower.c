@@ -1456,6 +1456,67 @@ static bool lower_pattern(Lower *ctx, const CcPattern *pattern, Value value,
     return false;
 }
 
+static bool lower_match(Lower *ctx, const CcMatch *match)
+{
+    Value scrutinee = lower_expr(ctx, match->scrutinee, CC_IR_NONE);
+    if (ctx->failed) return false;
+    const CcIrTypeInfo *type =
+        cc_ir_type_info(ctx->module, scrutinee.type);
+    if (type == NULL || type->kind != CC_IR_TYPE_OPTIONAL) {
+        error_at(ctx, match->scrutinee->span,
+                 "IR lowering: match requires optional");
+        return false;
+    }
+    CcIrType inner = type->inner;
+    uint32_t scrutinee_slot = make_slot(ctx, scrutinee.type, match->span);
+    if (ctx->failed ||
+        !store(ctx, scrutinee_slot, scrutinee, match->span)) return false;
+    const CcMatchArm *some = NULL;
+    const CcMatchArm *none = NULL;
+    for (const CcMatchArm *arm = match->arms; arm != NULL;
+         arm = arm->next) {
+        if (arm->is_some) some = arm;
+        else none = arm;
+    }
+    if (some == NULL || none == NULL) {
+        error_at(ctx, match->span, "IR lowering: non-exhaustive optional match");
+        return false;
+    }
+    CcIrBlock *some_block = new_block(ctx, some->span);
+    CcIrBlock *none_block = new_block(ctx, none->span);
+    CcIrBlock *join = new_block(ctx, match->span);
+    if (ctx->failed) return false;
+    scrutinee = load(ctx, scrutinee_slot, match->span);
+    if (ctx->failed) return false;
+    CcIrInstruction *test = NULL;
+    Value has = append(ctx, CC_IR_OPTIONAL_HAS, CC_IR_BOOL,
+                       match->scrutinee->span, &test);
+    if (test == NULL) return false;
+    test->lhs = scrutinee.reg;
+    branch(ctx, has, some_block, none_block, match->span);
+
+    ctx->current = some_block;
+    scrutinee = load(ctx, scrutinee_slot, some->span);
+    if (ctx->failed) return false;
+    CcIrInstruction *unwrap = NULL;
+    Value payload = append(ctx, CC_IR_OPTIONAL_UNWRAP, inner,
+                           some->span, &unwrap);
+    if (unwrap == NULL) return false;
+    unwrap->lhs = scrutinee.reg;
+    LowerVar *saved = ctx->variables;
+    bool ok = lower_pattern(ctx, some->payload, payload, false) &&
+              lower_block(ctx, some->body, true);
+    ctx->variables = saved;
+    if (!ok) return false;
+    if (!ctx->current->terminated) jump(ctx, join, some->span);
+
+    ctx->current = none_block;
+    if (!lower_block(ctx, none->body, true)) return false;
+    if (!ctx->current->terminated) jump(ctx, join, none->span);
+    ctx->current = join;
+    return !ctx->failed;
+}
+
 static bool compound_opcode(CcAssignmentOperator operator, CcIrOpcode *out)
 {
     switch (operator) {
@@ -1802,6 +1863,8 @@ static bool lower_statement(Lower *ctx, const CcStatement *node)
     }
     case CC_AST_STATEMENT_IF:
         return lower_if(ctx, node->if_statement);
+    case CC_AST_STATEMENT_MATCH:
+        return lower_match(ctx, node->match_statement);
     case CC_AST_STATEMENT_UNSAFE:
         return lower_block(ctx, node->unsafe_block, true);
     case CC_AST_STATEMENT_WHILE: {

@@ -1,0 +1,11 @@
+fn produce(counter: *i32) -> ?i32 {
+    unsafe { *counter += 1; }
+    return none;
+}
+fn main() -> i32 {
+    var count = 0;
+    match produce(&count) {
+        some(value) => { return value; },
+        none => { return 41 + count; },
+    }
+}

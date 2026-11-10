@@ -1,0 +1,4 @@
+fn main() -> i32 {
+    let item: ?i32 = none;
+    match item { none => { return 42; } }
+}

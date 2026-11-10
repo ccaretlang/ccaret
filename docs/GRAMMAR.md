@@ -37,6 +37,9 @@ Statements, expressions, patterns, types, generics and attributes need a full gr
 - `expr = expr;`, compound assignments, expression statements.
 - `return expr;`, `return;`, `break;`, `continue;`.
 - `if`, `while`, `for name in range`, `loop`, `match`, nested blocks.
+- The executable optional-only `match` is a **statement** with a block body
+  per arm; it has no trailing semicolon. Arm order is unconstrained, arms
+  are comma-separated with an optional final comma. See the rules below.
 - In the executable subset, `unsafe { statement* }` is a scoped statement
   (nesting is allowed), not a value expression or an `unsafe fn` declaration.
   A raw-pointer read/write using unary `*` is legal only inside such a block.
@@ -69,7 +72,7 @@ floating-point literal. Ordinary floats such as `1.5` are unchanged.
 These are syntax rules; matching tuple arity and component types, checking
 binding names and lowering tuple values are responsibilities of later phases.
 
-## Optional inspection and checked extraction (bootstrap subset)
+## Optional matching, inspection and checked extraction (bootstrap subset)
 
 An optional `?T` is constructed with `some(payload)` or `none`.
 `none` requires a contextual optional type. Postfix `optional.has`
@@ -84,11 +87,37 @@ if value.has { return value.value; }
 return 0;
 ```
 
-These member names are a **bootstrap spelling**, not finalized pattern
-matching syntax. There is no implicit optional-to-value conversion,
-exhaustive `match`, optional chaining or flow-based proof that
-`.value` is safe; even a preceding `.has` test does not remove the
-runtime check.
+The executable optional-only match statement has this syntax:
+
+```ebnf
+optional_match = "match", expression, "{",
+                 (match_arm, (",", match_arm)*, ","?)?, "}" ;
+match_arm      = ("some", "(", binding_pattern, ")" | "none"),
+                 "=>", "{", statement*, "}" ;
+```
+
+```caret
+fn extract(item: ?(i32, i32)) -> i32 {
+    match item {
+        some((a, b)) => { return a + b; },
+        none => { return 0; },
+    }
+}
+```
+
+Exactly one `some` and one `none` arm are mandatory; omitting an arm,
+duplicating one or matching a non-optional type is an error. The payload
+pattern may be a name, parenthesized binding or a nested tuple binding
+pattern, reusing `let` destructuring rules. Bindings are immutable and
+visible only within the `some` arm; the `none` arm has no payload.
+The scrutinee evaluates exactly once. Nested optional matches work,
+and a match with two returning arms satisfies the return-path check.
+
+`match` is not yet an expression. Enum variants, wildcards, guards,
+arbitrary nested variant patterns and `Result` matching remain future
+work. These member names are **bootstrap spellings**, not frozen syntax.
+There is no implicit optional-to-value conversion or optional chaining;
+`.value` is still checked at runtime even following a `.has` test.
 
 ## Fixed-array literals
 

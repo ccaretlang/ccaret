@@ -1,0 +1,9 @@
+fn main() -> i32 {
+    let item: ?i32 = some(20);
+    var total = 0;
+    match item {
+        some(value) => { total = value; },
+        none => { total = 1; },
+    }
+    return total + 22;
+}

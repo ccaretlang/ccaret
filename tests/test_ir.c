@@ -439,6 +439,85 @@ static void test_optional_access_ir_and_verifier(void)
     fixture_destroy(&f);
 }
 
+static void test_optional_match_cfg_and_verifier(void)
+{
+    Fixture f;
+    fixture_init(&f,
+        "fn produce(counter: *i32) -> ?(i32, i32) {"
+        " unsafe { *counter += 1; } return some((20, 22)); }"
+        "fn main() -> i32 { var count = 0;"
+        " match produce(&count) {"
+        " none => { return 0; },"
+        " some((a, b)) => { return a + b + count - 1; }, } }");
+    lower(&f);
+    CcIrFunction *fn = f.module->functions->next;
+    assert(fn != NULL && fn->block_count == 4);
+    CcIrBlock *entry = fn->blocks;
+    CcIrBlock *some = entry->next;
+    CcIrBlock *none = some->next;
+    CcIrBlock *join = none->next;
+    assert(entry->terminator == CC_IR_BRANCH);
+    assert(entry->target == some->id && entry->alternate == none->id);
+    assert(some->terminator == CC_IR_RET);
+    assert(none->terminator == CC_IR_RET);
+    assert(join->terminator == CC_IR_TRAP && join->next == NULL);
+
+    unsigned int calls = 0, has_count = 0, unwrap_count = 0;
+    for (CcIrBlock *block = fn->blocks; block != NULL;
+         block = block->next) {
+        for (CcIrInstruction *i = block->first; i != NULL; i = i->next) {
+            if (i->op == CC_IR_CALL) calls++;
+            if (i->op == CC_IR_OPTIONAL_HAS) {
+                has_count++;
+                assert(block == entry);
+            }
+            if (i->op == CC_IR_OPTIONAL_UNWRAP) {
+                unwrap_count++;
+                assert(block == some);
+            }
+            if (i->op == CC_IR_GET_TUPLE) assert(block == some);
+        }
+    }
+    assert(calls == 1 && has_count == 1 && unwrap_count == 1);
+    CcIrInstruction *has = find_instruction(fn, CC_IR_OPTIONAL_HAS);
+    CcIrInstruction *unwrap = find_instruction(fn, CC_IR_OPTIONAL_UNWRAP);
+    assert(has != NULL && unwrap != NULL);
+
+    uint32_t old = has->lhs;
+    has->lhs = CC_IR_NONE;
+    expect_invalid(f.module, "IR verifier: invalid optional access");
+    has->lhs = old;
+    old = unwrap->lhs;
+    unwrap->lhs = CC_IR_NONE;
+    expect_invalid(f.module, "IR verifier: invalid optional access");
+    unwrap->lhs = old;
+    CcIrType saved_type = unwrap->type;
+    unwrap->type = CC_IR_BOOL;
+    expect_invalid(f.module, "IR verifier: invalid optional access");
+    unwrap->type = saved_type;
+    old = entry->target;
+    entry->target = fn->block_count;
+    expect_invalid(f.module, "IR verifier: invalid block terminator");
+    entry->target = old;
+
+    CcIrError error;
+    assert(cc_ir_verify(f.module, &error));
+    FILE *out = tmpfile();
+    assert(out != NULL && cc_ir_print(out, f.module));
+    rewind(out);
+    char printed[15000];
+    size_t n = fread(printed, 1, sizeof(printed) - 1, out);
+    printed[n] = '\0';
+    assert(strstr(printed, "optional.has") != NULL);
+    assert(strstr(printed, "optional.unwrap") != NULL);
+    assert(strstr(printed, "condbr") != NULL);
+    assert(fclose(out) == 0);
+    out = tmpfile();
+    assert(out != NULL && cc_c_emit(out, f.module, &error));
+    assert(fclose(out) == 0);
+    fixture_destroy(&f);
+}
+
 static void test_for_range_cfg_and_bounds_once(void)
 {
     Fixture f;
@@ -1115,6 +1194,7 @@ int main(void)
     test_invalid_tuple_ir();
     test_invalid_optional_ir();
     test_optional_access_ir_and_verifier();
+    test_optional_match_cfg_and_verifier();
     test_for_range_cfg_and_bounds_once();
     test_bitwise_wrapping_and_compound_ir();
     test_array_ir_and_verifier();

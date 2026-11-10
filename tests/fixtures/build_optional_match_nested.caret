@@ -1,0 +1,12 @@
+fn main() -> i32 {
+    let item: ??i32 = some(some(42));
+    match item {
+        some(inner) => {
+            match inner {
+                some(value) => { return value; },
+                none => { return 0; },
+            }
+        },
+        none => { return 0; },
+    }
+}

@@ -137,6 +137,52 @@ run_exit 42 "$out/optional_access_case/optimized"
 grep -q 'optional.has' "$out/optional_access_case.ir"
 grep -q 'optional.unwrap' "$out/optional_access_case.ir"
 
+# Optional match uses imported expressions in both arms and preserves
+# the locally shadowed import alias of a `some` binder.
+mkdir -p "$out/optional_match_case/app" "$out/optional_match_case/lib"
+cat > "$out/optional_match_case/app/main.caret" <<'EOF'
+module app.main;
+import lib.option as opt;
+import lib.math as math;
+fn main() -> i32 {
+    var total = 0;
+    match opt.present() {
+        some(opt) => { total = opt + math.delta(); },
+        none => { total = math.zero(); },
+    }
+    match opt.absent() {
+        none => { return total; },
+        some(value) => { return value; },
+    }
+}
+EOF
+cat > "$out/optional_match_case/lib/option.caret" <<'EOF'
+module lib.option;
+pub fn present() -> ?i32 {
+    match some(20) {
+        some(value) => { return some(value); },
+        none => { return none; },
+    }
+}
+pub fn absent() -> ?i32 { return none; }
+EOF
+cat > "$out/optional_match_case/lib/math.caret" <<'EOF'
+module lib.math;
+pub fn delta() -> i32 { return 22; }
+pub fn zero() -> i32 { return 0; }
+EOF
+"$binary" check "$out/optional_match_case/app/main.caret"
+"$binary" emit-ir "$out/optional_match_case/app/main.caret" \
+    -o "$out/optional_match_case.ir"
+"$binary" build "$out/optional_match_case/app/main.caret" \
+    -o "$out/optional_match_case/bin"
+run_exit 42 "$out/optional_match_case/bin"
+gcc -std=c17 -O2 -Wall -Wextra -Wpedantic -Werror \
+    "$out/optional_match_case/bin.c" -o "$out/optional_match_case/optimized"
+run_exit 42 "$out/optional_match_case/optimized"
+grep -q 'optional.has' "$out/optional_match_case.ir"
+grep -q 'optional.unwrap' "$out/optional_match_case.ir"
+
 # Subranges from a mutable local and inside imported functions must retain
 # their backing array alias and length checks across three linked modules.
 mkdir -p "$out/subrange_case/app" "$out/subrange_case/lib"

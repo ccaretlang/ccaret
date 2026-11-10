@@ -479,6 +479,59 @@ static void test_invalid_programs(void)
         invalid(cases[i].source, cases[i].message, cases[i].at);
 }
 
+static void test_optional_match_semantics(void)
+{
+    valid("fn f(x: ?i32) -> i32 { match x {"
+          "some(value) => { return value; }, none => { return 0; } } }");
+    valid("fn f(x: ?bool) -> i32 { match x {"
+          "none => { return 42; }, some(flag) => {"
+          " if flag { return 42; } return 0; } } }");
+    valid("fn f() -> i32 { match some(42) {"
+          "some(value) => { return value; }, none => { return 0; } } }");
+    valid("fn f(x: ?(i32, (i32, i32))) -> i32 { match x {"
+          "some((a, (b, c))) => { return a + b + c; },"
+          "none => { return 0; } } }");
+    valid("fn f(x: ?i32) -> i32 { let value = 20; match x {"
+          "some(value) => { let result = value; },"
+          "none => { let value = 0; } } return value; }");
+    valid("fn f(x: ??i32) -> i32 { match x {"
+          " some(inner) => { match inner {"
+          " some(n) => { return n; }, none => { return 0; } } },"
+          " none => { return 0; } } }");
+    valid("fn f(x: ?i32) -> i32 { var result = 0; match x {"
+          " some(n) => { result = n; }, none => { result = 42; } }"
+          " return result; }");
+
+    invalid("fn f() { match 42 { some(n) => {}, none => {} } }",
+            "match requires an optional value", "42");
+    invalid("fn f(x: ?i32) { match x { some(n) => {} } }",
+            "non-exhaustive optional match: both some and none required", NULL);
+    invalid("fn f(x: ?i32) { match x { none => {} } }",
+            "non-exhaustive optional match: both some and none required", NULL);
+    invalid("fn f(x: ?i32) { match x {} }",
+            "non-exhaustive optional match: both some and none required", NULL);
+    invalid("fn f(x: ?i32) { match x { none => {}, none => {} } }",
+            "duplicate optional match arm", NULL);
+    invalid("fn f(x: ?i32) { match x { some(a) => {},"
+            " some(b) => {}, none => {} } }",
+            "duplicate optional match arm", NULL);
+    invalid("fn f(x: ?i32) { match x { some(a) => {}, none => {} }"
+            " let leak = a; }", "undefined name", "a");
+    invalid("fn f(x: ?i32) { match x { some(a) => {},"
+            " none => { let leak = a; } } }", "undefined name", "a");
+    invalid("fn f(x: ?i32) { match x { some(a) => { a = 5; },"
+            " none => {} } }", "cannot assign to immutable binding", "a");
+    invalid("fn f(x: ?i32) { match x { some(a) => { let a = 1; },"
+            " none => {} } }", "duplicate binding in scope", "a");
+    invalid("fn f(x: ?i32) { match x { some((a, b)) => {},"
+            " none => {} } }", "tuple pattern requires a tuple value", NULL);
+    invalid("fn f(x: ?(i32, i32)) { match x { some((a, b, c)) => {},"
+            " none => {} } }", "tuple destructuring arity mismatch", NULL);
+    invalid("fn f(x: ?i32) -> i32 { match x {"
+            " some(n) => { return n; }, none => {} } }",
+            "not all control-flow paths return a value", NULL);
+}
+
 static void test_api_errors(void)
 {
     CcArena arena;
@@ -496,6 +549,7 @@ int main(void)
 {
     test_valid_programs();
     test_invalid_programs();
+    test_optional_match_semantics();
     test_api_errors();
 
     puts("semantic: all tests passed");

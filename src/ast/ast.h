@@ -18,6 +18,8 @@ typedef struct CcIf CcIf;
 typedef struct CcWhile CcWhile;
 typedef struct CcLoop CcLoop;
 typedef struct CcFor CcFor;
+typedef struct CcMatch CcMatch;
+typedef struct CcMatchArm CcMatchArm;
 typedef struct CcFunctionDeclaration CcFunctionDeclaration;
 typedef struct CcStructDeclaration CcStructDeclaration;
 typedef struct CcStructField CcStructField;
@@ -78,6 +80,7 @@ typedef enum {
     CC_AST_STATEMENT_CONTINUE,
     CC_AST_STATEMENT_LOOP,
     CC_AST_STATEMENT_FOR,
+    CC_AST_STATEMENT_MATCH,
     CC_AST_STATEMENT_UNSAFE
 } CcStatementKind;
 
@@ -276,6 +279,7 @@ struct CcStatement {
         CcWhile *while_statement;
         CcLoop *loop_statement;
         CcFor *for_statement;
+        CcMatch *match_statement;
         CcBlock *unsafe_block;
     };
 };
@@ -309,6 +313,20 @@ struct CcFor {
     CcSourceSpan name;
     CcExpression *range;
     CcBlock *body;
+};
+
+struct CcMatchArm {
+    CcSourceSpan span;
+    bool is_some;
+    CcPattern *payload; /* Non-NULL only for `some(pattern)`. */
+    CcBlock *body;
+    CcMatchArm *next;
+};
+
+struct CcMatch {
+    CcSourceSpan span;
+    CcExpression *scrutinee;
+    CcMatchArm *arms;
 };
 
 struct CcFunctionDeclaration {

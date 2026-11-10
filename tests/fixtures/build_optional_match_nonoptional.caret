@@ -1,0 +1,3 @@
+fn main() -> i32 {
+    match 42 { some(value) => { return value; }, none => { return 0; } }
+}

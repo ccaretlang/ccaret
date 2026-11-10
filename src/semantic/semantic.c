@@ -1244,6 +1244,44 @@ static bool check_if(SemContext *ctx, const CcIf *branch)
     return true;
 }
 
+static bool check_match(SemContext *ctx, const CcMatch *match)
+{
+    SemType *type = check_expr(ctx, match->scrutinee, NULL);
+    if (type == NULL) return false;
+    type = finalize_type(ctx, type, match->scrutinee->span);
+    if (type == NULL) return false;
+    if (type->kind != SEM_OPTIONAL) {
+        fail(ctx, match->scrutinee->span, "match requires an optional value");
+        return false;
+    }
+    bool has_some = false;
+    bool has_none = false;
+    for (const CcMatchArm *arm = match->arms; arm != NULL;
+         arm = arm->next) {
+        if (arm->is_some ? has_some : has_none) {
+            fail(ctx, arm->span, "duplicate optional match arm");
+            return false;
+        }
+        if (arm->is_some) has_some = true;
+        else has_none = true;
+
+        SemVariable *saved = ctx->variables;
+        ctx->depth++;
+        bool ok = (!arm->is_some ||
+                   bind_pattern(ctx, arm->payload, type->inner, false)) &&
+                  check_block(ctx, arm->body, false);
+        ctx->variables = saved;
+        ctx->depth--;
+        if (!ok) return false;
+    }
+    if (!has_some || !has_none) {
+        fail(ctx, match->span,
+             "non-exhaustive optional match: both some and none required");
+        return false;
+    }
+    return true;
+}
+
 static bool check_statement(SemContext *ctx, const CcStatement *statement)
 {
     switch (statement->kind) {
@@ -1445,6 +1483,8 @@ static bool check_statement(SemContext *ctx, const CcStatement *statement)
     }
     case CC_AST_STATEMENT_IF:
         return check_if(ctx, statement->if_statement);
+    case CC_AST_STATEMENT_MATCH:
+        return check_match(ctx, statement->match_statement);
     case CC_AST_STATEMENT_UNSAFE: {
         ctx->unsafe_depth++;
         bool ok = check_block(ctx, statement->unsafe_block, true);
@@ -1538,12 +1578,30 @@ static bool check_block(SemContext *ctx, const CcBlock *block, bool new_scope)
 
 static bool if_guarantees_return(const CcIf *branch);
 
+static bool block_guarantees_return(const CcBlock *block);
+
+static bool match_guarantees_return(const CcMatch *match)
+{
+    bool some = false;
+    bool none = false;
+    for (const CcMatchArm *arm = match->arms; arm != NULL;
+         arm = arm->next) {
+        if (!block_guarantees_return(arm->body)) return false;
+        if (arm->is_some) some = true;
+        else none = true;
+    }
+    return some && none;
+}
+
 static bool block_guarantees_return(const CcBlock *block)
 {
     for (CcStatement *stmt = block->first; stmt != NULL; stmt = stmt->next) {
         if (stmt->kind == CC_AST_STATEMENT_RETURN) return true;
         if (stmt->kind == CC_AST_STATEMENT_IF &&
             if_guarantees_return(stmt->if_statement))
+            return true;
+        if (stmt->kind == CC_AST_STATEMENT_MATCH &&
+            match_guarantees_return(stmt->match_statement))
             return true;
         if (stmt->kind == CC_AST_STATEMENT_UNSAFE &&
             block_guarantees_return(stmt->unsafe_block))

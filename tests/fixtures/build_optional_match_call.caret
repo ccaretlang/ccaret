@@ -1,0 +1,11 @@
+fn make(counter: *i32) -> ?i32 {
+    unsafe { *counter += 1; }
+    return some(41);
+}
+fn main() -> i32 {
+    var count = 0;
+    match make(&count) {
+        some(value) => { return value + count; },
+        none => { return 0; },
+    }
+}

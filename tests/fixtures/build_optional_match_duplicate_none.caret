@@ -1,0 +1,5 @@
+fn main() -> i32 {
+    let item: ?i32 = none;
+    match item { some(a) => { return a; }, none => { return 42; },
+                 none => { return 0; } }
+}
