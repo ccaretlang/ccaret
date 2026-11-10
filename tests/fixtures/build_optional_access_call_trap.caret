@@ -1,0 +1,4 @@
+fn missing() -> ?i32 { return none; }
+fn main() -> i32 {
+    return missing().value;
+}

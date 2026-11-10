@@ -1,0 +1,5 @@
+fn main() -> i32 {
+    let item: ?i32 = some(42);
+    let number: i32 = item.has;
+    return number;
+}

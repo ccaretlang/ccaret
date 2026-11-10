@@ -1,0 +1,8 @@
+fn main() -> i32 {
+    var number = 20;
+    let item: ?*i32 = some(&number);
+    if item.has {
+        unsafe { *item.value += 22; }
+    }
+    return number;
+}

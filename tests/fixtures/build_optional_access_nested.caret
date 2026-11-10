@@ -1,0 +1,7 @@
+fn main() -> i32 {
+    let nested: ??i32 = some(some(42));
+    if nested.has && nested.value.has {
+        return nested.value.value;
+    }
+    return 0;
+}

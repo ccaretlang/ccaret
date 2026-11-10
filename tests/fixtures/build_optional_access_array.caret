@@ -1,0 +1,4 @@
+fn main() -> i32 {
+    let item: ?[2]i32 = some([20, 22]);
+    return item.value[0] + item.value[1];
+}

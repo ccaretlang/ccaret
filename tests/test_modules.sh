@@ -95,6 +95,48 @@ gcc -std=c17 -O2 -Wall -Wextra -Wpedantic -Werror \
 run_exit 42 "$out/slice_case/optimized"
 grep -q 'slice.store' "$out/slice_case.ir"
 
+# Optional inspection and checked unwrap must survive three-source linking.
+mkdir -p "$out/optional_access_case/app" "$out/optional_access_case/lib"
+cat > "$out/optional_access_case/app/main.caret" <<'EOF'
+module app.main;
+import lib.option as option;
+fn main() -> i32 {
+    let maybe = option.produce();
+    if option.available(maybe) {
+        return option.take(maybe);
+    }
+    return 0;
+}
+EOF
+cat > "$out/optional_access_case/lib/option.caret" <<'EOF'
+module lib.option;
+import lib.math as math;
+pub fn produce() -> ?i32 {
+    return some(math.answer());
+}
+pub fn available(item: ?i32) -> bool {
+    return item.has;
+}
+pub fn take(item: ?i32) -> i32 {
+    return item.value;
+}
+EOF
+cat > "$out/optional_access_case/lib/math.caret" <<'EOF'
+module lib.math;
+pub fn answer() -> i32 { return 42; }
+EOF
+"$binary" check "$out/optional_access_case/app/main.caret"
+"$binary" emit-ir "$out/optional_access_case/app/main.caret" \
+    -o "$out/optional_access_case.ir"
+"$binary" build "$out/optional_access_case/app/main.caret" \
+    -o "$out/optional_access_case/bin"
+run_exit 42 "$out/optional_access_case/bin"
+gcc -std=c17 -O2 -Wall -Wextra -Wpedantic -Werror \
+    "$out/optional_access_case/bin.c" -o "$out/optional_access_case/optimized"
+run_exit 42 "$out/optional_access_case/optimized"
+grep -q 'optional.has' "$out/optional_access_case.ir"
+grep -q 'optional.unwrap' "$out/optional_access_case.ir"
+
 # Subranges from a mutable local and inside imported functions must retain
 # their backing array alias and length checks across three linked modules.
 mkdir -p "$out/subrange_case/app" "$out/subrange_case/lib"

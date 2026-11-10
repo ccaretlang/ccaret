@@ -74,7 +74,8 @@
 
 - [ ] Tagged enums, pattern matching and exhaustiveness.
 - [x] Optional `?T`, `some`, `none` construction and value propagation
-      (not yet optional inspection/unwrapping or exhaustive matching).
+      plus `.has` inspection and checked `.value` extraction through
+      independently verified IR and C17 (full pattern matching pending).
 - [ ] `Result<T,E>` and `try` propagation.
 - [x] Tuples, nested values, destructuring and multi-value returns.
 - [ ] `defer`, `errdefer`, cleanup and branching edge cases.

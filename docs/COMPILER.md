@@ -7,14 +7,14 @@ AST and parser, initial semantic checker, typed non-SSA IR with verifier,
 and a C17 backend. The `ccaret tokens`, `check`, `emit-ir`, `emit-c`
 and `build` commands work for their documented subset. Source programs
 using `i32`, `bool`, `void`, nested tuple values and optional
-`?T` construction/propagation, `i32` bitwise and wrapping arithmetic,
+`?T` construction/propagation/checked extraction, `i32` bitwise and wrapping arithmetic,
 checked compound updates, integer `for` ranges, fixed arrays `[N]T`
 with checked indexing, nominal struct values and locally imported
 `pub` functions/structs, scoped raw-pointer `unsafe` operations and
 non-owning checked slice views and exclusive checked subranges
 can become GCC-compiled executables. The frontend supports additional
-syntax and types that are **not yet lowerable**, including optional
-unwrapping/pattern matching. See
+syntax and types that are **not yet lowerable**, including exhaustive
+optional pattern matching. See
 [SEMANTIC.md](SEMANTIC.md) and [BACKEND_C.md](BACKEND_C.md).
 The local module linker builds an acyclic dependency graph, applies
 AST-guided namespace resolution and submits an internal canonical source

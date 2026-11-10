@@ -1,0 +1,5 @@
+fn main() -> i32 {
+    let present: ?i32 = some(42);
+    if present.has { return present.value; }
+    return 0;
+}

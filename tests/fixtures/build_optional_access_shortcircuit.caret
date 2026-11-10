@@ -1,0 +1,11 @@
+fn main() -> i32 {
+    let missing: ?i32 = none;
+    let present: ?i32 = some(42);
+    if missing.has && missing.value > 0 {
+        return 0;
+    }
+    if present.has || missing.value > 0 {
+        return present.value;
+    }
+    return 0;
+}

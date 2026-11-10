@@ -132,6 +132,19 @@ static void test_valid_programs(void)
         " fn cs() -> *const u8 { return c\"hello\"; }",
         "fn f() -> u8 { return 255; }",
         "fn f() -> ?i32 { let x = some(1); return x; }",
+        "fn f() -> i32 { let x: ?i32 = some(42);"
+        " if x.has { return x.value; } return 0; }",
+        "fn f() -> i32 { let x: ?i32 = none;"
+        " if x.has { return 0; } return 42; }",
+        "fn f() -> i32 { let x: ??i32 = some(some(42));"
+        " return x.value.value; }",
+        "struct C { value: i32 }"
+        " fn f() -> i32 { let x: ?C = some(C { value: 42 });"
+        " return x.value.value; }",
+        "fn f() -> bool { return some(true).value; }",
+        "fn f() -> usize { let x: ?[2]i32 = some([20,22]);"
+        " return x.value.len; }",
+        "fn f(x: ?i32) -> bool { return x.has; }",
         "fn f() -> () { return (); }",
         "fn f() -> ((i32, i32), ?bool) { return ((1, 2), none); }",
         "fn f() -> i32 { if true { return 1; } else { return 2; } }",
@@ -364,6 +377,17 @@ static void test_invalid_programs(void)
           "unknown member", "len" },
         { "fn f() { let x = some(1); var y = 2; x = y; }",
           "cannot assign to immutable binding", "x" },
+        { "fn f() -> i32 { let x = 42; return x.value; }",
+          "unknown member", "value" },
+        { "fn f() -> bool { let x: ?i32 = some(42);"
+          " return x.other; }",
+          "unknown optional member", "other" },
+        { "fn f() { let x: ?i32 = some(42); let y: i32 = x.has; }",
+          "type mismatch", "x.has" },
+        { "fn f() { let x: ?i32 = some(42); let y: bool = x.value; }",
+          "type mismatch", "x.value" },
+        { "fn f() -> i32 { let x = none; return x.value; }",
+          "none requires an optional type context", "none" },
         { "fn f() { var x: bool = true; x += 1; }",
           "compound assignment requires a numeric variable", "x" },
         { "fn f(a: [3]u8, b: [4]u8) { let x: [3]u8 = b; }",

@@ -90,6 +90,8 @@ static void emit_signature(FILE *out, const CcIrFunction *fn)
 
 static void emit_instruction(FILE *out, const CcIrInstruction *i)
 {
+    if (i->op == CC_IR_OPTIONAL_UNWRAP)
+        fprintf(out, "  if (!r%u.has) abort();\n", i->lhs);
     if (i->result != CC_IR_NONE)
         fprintf(out, "  r%u = ", i->result);
     else fputs("  ", out);
@@ -209,6 +211,12 @@ static void emit_instruction(FILE *out, const CcIrInstruction *i)
         break;
     case CC_IR_MAKE_NONE:
         fprintf(out, "(cc_t_%u){0}", i->type);
+        break;
+    case CC_IR_OPTIONAL_HAS:
+        fprintf(out, "r%u.has", i->lhs);
+        break;
+    case CC_IR_OPTIONAL_UNWRAP:
+        fprintf(out, "r%u.value", i->lhs);
         break;
     case CC_IR_MAKE_ARRAY:
         fprintf(out, "(cc_t_%u){", i->type);

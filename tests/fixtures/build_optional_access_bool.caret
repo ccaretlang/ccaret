@@ -1,0 +1,6 @@
+fn main() -> i32 {
+    let yes: ?bool = some(true);
+    let no: ?bool = none;
+    if yes.has && yes.value && !no.has { return 42; }
+    return 0;
+}

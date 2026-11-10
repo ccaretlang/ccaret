@@ -1,0 +1,11 @@
+fn make(counter: *i32) -> ?i32 {
+    unsafe { *counter += 1; }
+    return some(42);
+}
+fn main() -> i32 {
+    var count = 0;
+    let first = make(&count).has;
+    let result = make(&count).value;
+    if first && count == 2 { return result; }
+    return 0;
+}

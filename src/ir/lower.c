@@ -982,6 +982,30 @@ static Value lower_expr(Lower *ctx, const CcExpression *expr,
         Value array = lower_expr(ctx, expr->member.operand, CC_IR_NONE);
         if (ctx->failed) return no_value();
         const CcIrTypeInfo *type = cc_ir_type_info(ctx->module, array.type);
+        if (type != NULL && type->kind == CC_IR_TYPE_OPTIONAL) {
+            CcIrOpcode op;
+            CcIrType result_type;
+            if (name_is(ctx, expr->member.name, "has")) {
+                op = CC_IR_OPTIONAL_HAS;
+                result_type = CC_IR_BOOL;
+            } else if (name_is(ctx, expr->member.name, "value")) {
+                op = CC_IR_OPTIONAL_UNWRAP;
+                result_type = type->inner;
+            } else {
+                error_at(ctx, expr->member.name,
+                         "IR lowering: unknown optional member");
+                return no_value();
+            }
+            if (expected != CC_IR_NONE && expected != result_type) {
+                error_at(ctx, expr->span,
+                         "IR lowering: optional member type mismatch");
+                return no_value();
+            }
+            CcIrInstruction *node = NULL;
+            Value result = append(ctx, op, result_type, expr->span, &node);
+            if (node != NULL) node->lhs = array.reg;
+            return result;
+        }
         if (type != NULL && type->kind == CC_IR_TYPE_STRUCT) {
             uint32_t index = struct_field_index(ctx, type, expr->member.name);
             if (index == CC_IR_NONE) {

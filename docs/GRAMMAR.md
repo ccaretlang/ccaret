@@ -69,6 +69,27 @@ floating-point literal. Ordinary floats such as `1.5` are unchanged.
 These are syntax rules; matching tuple arity and component types, checking
 binding names and lowering tuple values are responsibilities of later phases.
 
+## Optional inspection and checked extraction (bootstrap subset)
+
+An optional `?T` is constructed with `some(payload)` or `none`.
+`none` requires a contextual optional type. Postfix `optional.has`
+returns `bool` without inspecting the payload. `optional.value` has
+type `T` and **aborts at runtime** if the optional is `none`.
+Both use ordinary postfix member precedence, work on optional-valued
+temporary expressions and evaluate the base expression exactly once.
+
+```caret
+let value: ?i32 = some(42);
+if value.has { return value.value; }
+return 0;
+```
+
+These member names are a **bootstrap spelling**, not finalized pattern
+matching syntax. There is no implicit optional-to-value conversion,
+exhaustive `match`, optional chaining or flow-based proof that
+`.value` is safe; even a preceding `.has` test does not remove the
+runtime check.
+
 ## Fixed-array literals
 
 A fixed-array value can be constructed with `[x, y, z]`, including a

@@ -3010,6 +3010,48 @@ static void test_slice_intrinsic_ast(void)
     fixture_destroy(&f);
 }
 
+static void test_optional_access_ast(void)
+{
+    ParserFixture f;
+    fixture_init(&f,
+        "fn main() -> i32 {"
+        " let item: ?(i32, i32) = some((20, 22));"
+        " let flag = item.has;"
+        " return item.value.0; }");
+    CcFunctionDeclaration *fn = cc_parser_parse_program(&f.parser);
+    assert(fn != NULL && !f.parser.failed);
+    CcStatement *flag = fn->body->first->next;
+    assert(flag != NULL && flag->kind == CC_AST_STATEMENT_LET);
+    CcExpression *has = flag->let.initializer;
+    assert(has->kind == CC_AST_EXPRESSION_MEMBER);
+    assert(has->member.operand->kind == CC_AST_EXPRESSION_IDENTIFIER);
+    CcStatement *ret = flag->next;
+    assert(ret != NULL && ret->kind == CC_AST_STATEMENT_RETURN);
+    CcExpression *projection = ret->return_expression;
+    assert(projection->kind == CC_AST_EXPRESSION_TUPLE_MEMBER);
+    assert(projection->tuple_member.index_value.value == 0);
+    CcExpression *unwrap = projection->tuple_member.operand;
+    assert(unwrap->kind == CC_AST_EXPRESSION_MEMBER);
+    assert(unwrap->member.operand->kind == CC_AST_EXPRESSION_IDENTIFIER);
+    assert(unwrap->span.start < projection->span.end);
+    fixture_destroy(&f);
+
+    fixture_init(&f,
+        "fn make() -> ?i32 { return some(42); }"
+        "fn main() -> i32 { return make().value; }");
+    fn = cc_parser_parse_program(&f.parser);
+    assert(fn != NULL && !f.parser.failed);
+    CcExpression *return_value = fn->next->body->first->return_expression;
+    assert(return_value->kind == CC_AST_EXPRESSION_MEMBER);
+    assert(return_value->member.operand->kind == CC_AST_EXPRESSION_CALL);
+    fixture_destroy(&f);
+
+    fixture_init(&f, "fn f() { let a: ?i32 = some(1); let b = a.; }");
+    cc_parser_parse_program(&f.parser);
+    assert(f.parser.failed && f.parser.error != NULL);
+    fixture_destroy(&f);
+}
+
 int main(void)
 {
     test_simple_function();
@@ -3088,6 +3130,7 @@ int main(void)
     test_module_headers_and_qualified_names();
     test_unsafe_pointer_statements();
     test_slice_intrinsic_ast();
+    test_optional_access_ast();
     test_subrange_ast();
     test_parse_errors();
     test_empty_source_without_functions();

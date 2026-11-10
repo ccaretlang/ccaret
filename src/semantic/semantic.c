@@ -1184,6 +1184,17 @@ static SemType *check_expr(SemContext *ctx, const CcExpression *expr,
         SemType *base = check_expr(ctx, expr->member.operand, NULL);
 
         if (base == NULL) return NULL;
+        if (base->kind == SEM_OPTIONAL) {
+            if (name_is(ctx, expr->member.name, "has")) {
+                SemType *boolean = builtin(ctx, PRIM_BOOL, expr->span);
+                return boolean == NULL ? NULL :
+                    coerce(ctx, boolean, expected, expr->span);
+            }
+            if (name_is(ctx, expr->member.name, "value"))
+                return coerce(ctx, base->inner, expected, expr->span);
+            fail(ctx, expr->member.name, "unknown optional member");
+            return NULL;
+        }
         if (base->kind == SEM_STRUCT) {
             for (const CcStructField *member = base->struct_decl->fields;
                  member != NULL; member = member->next)

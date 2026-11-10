@@ -45,6 +45,9 @@ entry point is `fn main() -> i32`.
 - Optional `?T` types, `some(value)` and `none` construction, optional
   parameters/returns, nested optionals and optionals inside tuples (and
   tuples inside optionals). `none` requires a contextual optional type.
+  `optional.has` obtains the presence flag as `bool`;
+  `optional.value` obtains the full typed payload, aborting if absent,
+  including nested and composite payloads. The source is evaluated once.
 - Fixed arrays `[N]T` with `[x, y]` literals (including `[]` with a
   type annotation), nested element types, by-value copies, parameters,
   returns, indexed reads, single-level indexed writes to `var` locals,
@@ -95,7 +98,10 @@ Composite IR type IDs map to deterministic C17 typedefs
 (`cc_t_3`, `cc_t_4`, etc.) in dependency order. Tuple elements use
 `f0`, `f1`, ... fields; a zero-element tuple has a dummy byte because
 empty structs are not standard C17. Optionals use a `bool has` tag and a
-typed `value` payload. Arrays use a fixed `elements[N]` field, or a
+typed `value` payload. Checked extraction emits an explicit
+`if (!r.has) abort();` before reading `r.value`, so the uninitialized
+or semantically absent payload of `none` is never accessed.
+Arrays use a fixed `elements[N]` field, or a
 dummy byte for `N = 0`, because zero-length C arrays are not standard
 C17. Array lengths are limited to 65536 in this bootstrap backend.
 Nominal structs use one C17 typedef per declaration, with deterministic
@@ -136,8 +142,8 @@ Pointer-origin slice creation, pointer arithmetic, casts,
 volatile pointers, floating-point values, enums, unions, type aliases,
 signed shifts (`<<`, `>>`, `<<=`, `>>=`) and multi-width integer
 arithmetic have not yet been lowered. Signed right-shift semantics
-are still open in the language specification. Optional
-inspection/unwrapping and pattern matching are not yet implemented.
+are still open in the language specification. Exhaustive optional
+pattern matching and implicit optional chaining are not yet implemented.
 Nested indexed assignment (`a[i][j] = x`), arbitrary `usize` arithmetic,
 and indexed targets other than a named mutable array local or named
 mutable-element slice local are not yet supported.
@@ -158,6 +164,13 @@ a stable ABI and freestanding targets remain future work. It should not
 be used for production or safety-critical compilation.
 
 ## Validation
+
+`make check` also exercises optional presence and checked extraction
+through IR mutation tests, correct/invalid source programs, nested
+aggregates, pointer and slice payloads, imported functions, GCC `-O2`
+with strict warnings and abort-on-`none` cases. Run
+`sh tests/test_optional_access_sanitizers.sh` for focused ASan/UBSan
+coverage of the optional inspection pipeline.
 
 `make check` runs the positive, negative, trap and module-linking
 subrange fixtures under the normal compiler, including strict

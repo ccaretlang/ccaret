@@ -7,7 +7,12 @@ Recoverable errors are ordinary values. C^ has no exception unwinding. A fatal `
 ## `?T`: optional value
 
 - `some(value)` holds a `T`. `none` means there is no value.
-- Unwrapping is explicit, through `match` or another safe operator once one is specified.
+- In the executable bootstrap, `optional.has` reports presence as
+  `bool`, while `optional.value` extracts `T` and **aborts** if
+  the optional is `none`. Neither uses an implicit conversion.
+  This checked, trap-on-absence access is **not** a recoverable error
+  handler; exhaustive `match` and optional chaining are still planned.
+  The member names are bootstrap spellings, not frozen syntax.
 - `?*T` can use a null representation when the target defines one. A general `?T` may need a tag.
 
 ```caret
@@ -16,6 +21,16 @@ fn find(bytes: []const u8, wanted: u8) -> ?usize {
         if bytes[i] == wanted { return some(i); }
     }
     return none;
+}
+```
+
+For a currently executable `i32` optional:
+
+```caret
+fn main() -> i32 {
+    let value: ?i32 = some(42);
+    if value.has { return value.value; }
+    return 0;
 }
 ```
 

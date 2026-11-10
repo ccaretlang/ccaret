@@ -1,0 +1,5 @@
+fn main() -> i32 {
+    let missing: ?i32 = none;
+    if missing.has { return 0; }
+    return 42;
+}

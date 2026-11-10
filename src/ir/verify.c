@@ -286,6 +286,19 @@ static bool validate_instruction(const CcIrModule *module,
                         "IR verifier: invalid none constructor");
         break;
     }
+    case CC_IR_OPTIONAL_HAS:
+    case CC_IR_OPTIONAL_UNWRAP: {
+        if (i->lhs >= register_count || !defined[i->lhs])
+            return fail(error, i->span, "IR verifier: invalid optional access");
+        CcIrType source = types[i->lhs];
+        const CcIrTypeInfo *optional = cc_ir_type_info(module, source);
+        CcIrType result_type = i->op == CC_IR_OPTIONAL_HAS
+            ? CC_IR_BOOL : optional == NULL ? CC_IR_VOID : optional->inner;
+        if (optional == NULL || optional->kind != CC_IR_TYPE_OPTIONAL ||
+            i->type != result_type || !USE(i->lhs, source))
+            return fail(error, i->span, "IR verifier: invalid optional access");
+        break;
+    }
     case CC_IR_MAKE_ARRAY: {
         const CcIrTypeInfo *array = cc_ir_type_info(module, i->type);
         if (array == NULL || array->kind != CC_IR_TYPE_ARRAY ||

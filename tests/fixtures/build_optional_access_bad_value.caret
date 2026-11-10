@@ -1,0 +1,4 @@
+fn main() -> i32 {
+    let val = [20, 22];
+    return val.value;
+}

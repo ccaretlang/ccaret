@@ -49,6 +49,17 @@ These rules must hold at every GCC optimization level. The backend must not rely
 | `fn(T) -> U` | Function pointer. Calling convention still to be specified |
 | `struct`, `enum`, `union` | Named aggregate types |
 
+The executable bootstrap supports `?T` optionals with constructors
+`some(value)` and `none` (the latter requires a contextual `?T`).
+`maybe.has` has type `bool` and examines only the presence tag.
+`maybe.value` has type `T` and **aborts** if the optional contains
+`none`, before reading the payload. The same rule applies to
+`??T`, optional arrays, structs, tuples, slices and raw pointers;
+optional values are passed and copied by value. There is no automatic
+unwrapping, optional chaining, exhaustiveness checking or flow-sensitive
+refinement after a presence check. The `.has`/`.value` syntax is a
+bootstrap subset rather than a frozen surface-language choice.
+
 Arrays and slices are different types. Any implicit array to slice conversion needs an exact rule. A slice does not own memory and cannot stop a use-after-free.
 
 The executable bootstrap implements an **explicit** array-to-slice

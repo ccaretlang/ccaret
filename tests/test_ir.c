@@ -369,6 +369,76 @@ static void test_invalid_optional_ir(void)
     fixture_destroy(&f);
 }
 
+static void test_optional_access_ir_and_verifier(void)
+{
+    Fixture f;
+    fixture_init(&f,
+        "fn main() -> i32 {"
+        " let present: ?i32 = some(20);"
+        " let absent: ?i32 = none;"
+        " let flag = present.has;"
+        " return present.value + 22; }");
+    lower(&f);
+    CcIrFunction *fn = f.module->functions;
+    CcIrInstruction *some = find_instruction(fn, CC_IR_MAKE_SOME);
+    CcIrInstruction *none = find_instruction(fn, CC_IR_MAKE_NONE);
+    CcIrInstruction *has = find_instruction(fn, CC_IR_OPTIONAL_HAS);
+    CcIrInstruction *unwrap = find_instruction(fn, CC_IR_OPTIONAL_UNWRAP);
+    CcIrInstruction *number = find_instruction(fn, CC_IR_CONST_I32);
+    assert(some != NULL && none != NULL && has != NULL &&
+           unwrap != NULL && number != NULL);
+    const CcIrTypeInfo *opt = cc_ir_type_info(f.module, some->type);
+    assert(opt != NULL && opt->kind == CC_IR_TYPE_OPTIONAL);
+    assert(opt->inner == CC_IR_I32);
+    assert(has->type == CC_IR_BOOL && unwrap->type == CC_IR_I32);
+
+    FILE *out = tmpfile();
+    assert(out != NULL && cc_ir_print(out, f.module));
+    rewind(out);
+    char printed[15000];
+    size_t n = fread(printed, 1, sizeof(printed) - 1, out);
+    printed[n] = '\0';
+    assert(strstr(printed, "optional.has") != NULL);
+    assert(strstr(printed, "optional.unwrap") != NULL);
+    assert(fclose(out) == 0);
+
+    uint32_t saved_lhs = has->lhs;
+    has->lhs = CC_IR_NONE;
+    expect_invalid(f.module, "IR verifier: invalid optional access");
+    has->lhs = number->result;
+    expect_invalid(f.module, "IR verifier: invalid optional access");
+    has->lhs = saved_lhs;
+
+    CcIrType saved_type = has->type;
+    has->type = CC_IR_I32;
+    expect_invalid(f.module, "IR verifier: invalid optional access");
+    has->type = saved_type;
+
+    saved_lhs = unwrap->lhs;
+    unwrap->lhs = CC_IR_NONE;
+    expect_invalid(f.module, "IR verifier: invalid optional access");
+    unwrap->lhs = number->result;
+    expect_invalid(f.module, "IR verifier: invalid optional access");
+    unwrap->lhs = saved_lhs;
+    saved_type = unwrap->type;
+    unwrap->type = CC_IR_BOOL;
+    expect_invalid(f.module, "IR verifier: invalid optional access");
+    unwrap->type = saved_type;
+
+    CcIrError error;
+    assert(cc_ir_verify(f.module, &error));
+    out = tmpfile();
+    assert(out != NULL && cc_c_emit(out, f.module, &error));
+    rewind(out);
+    n = fread(printed, 1, sizeof(printed) - 1, out);
+    printed[n] = '\0';
+    assert(strstr(printed, "if (!r") != NULL);
+    assert(strstr(printed, ".has) abort();") != NULL);
+    assert(strstr(printed, ".value;") != NULL);
+    assert(fclose(out) == 0);
+    fixture_destroy(&f);
+}
+
 static void test_for_range_cfg_and_bounds_once(void)
 {
     Fixture f;
@@ -1044,6 +1114,7 @@ int main(void)
     test_tuple_destructuring_and_type_interning();
     test_invalid_tuple_ir();
     test_invalid_optional_ir();
+    test_optional_access_ir_and_verifier();
     test_for_range_cfg_and_bounds_once();
     test_bitwise_wrapping_and_compound_ir();
     test_array_ir_and_verifier();

@@ -1,0 +1,4 @@
+fn main() -> i32 {
+    let nested: ??i32 = some(none);
+    return nested.value.value;
+}

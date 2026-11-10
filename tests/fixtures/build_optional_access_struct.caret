@@ -1,0 +1,6 @@
+struct Pair { x: i32, y: i32 }
+fn main() -> i32 {
+    let item: ?Pair = some(Pair { x: 20, y: 22 });
+    let pair = item.value;
+    return pair.x + pair.y;
+}

@@ -54,7 +54,7 @@ implemented yet.
 | Raw pointers | `addr.slot` (local address), `ptr.load` and `ptr.store` (dereference/write) |
 | Slices | `slice.from.slot`, `slice.subrange`, `slice.get`, `slice.store`, `slice.len` |
 | Aggregates | `tuple`/`tuple.get`, `array` (construct), `array.get` (checked index), `array.store` (checked mutable local write); `struct`/`struct.get`/`struct.set` (named field values) |
-| Tagged values | `some`, `none` (construct optional values) |
+| Tagged values | `some`, `none` (construct optional values), `optional.has`, `optional.unwrap` |
 | Calls | Direct `call`, including aggregate parameters and results |
 | Control | `br`, `condbr`, `ret`, `trap` |
 
@@ -124,7 +124,15 @@ undefined/cross-block bounds and non-`i32` bounds. Runtime bounds
 checks enforce `0 <= start <= end <= source.len` in the backend.
 The verifier does not prove backing-array lifetime, exclusive access,
 aliasing or that a slice value points to valid memory.
-Optional unwrapping, `match`, `try`, `defer`, and their control-flow
+`optional.has` consumes a typed optional register and yields `bool`;
+`optional.unwrap` consumes a typed optional register and yields its
+exact payload type. The independent verifier checks the source is an
+existing canonical optional type, the result type agrees, and the input
+register is defined in the current block. The C17 emitter checks the
+discriminant and aborts before reading the payload for `optional.unwrap`.
+Because the base optional is already an IR register, a source expression
+containing calls or short-circuit control flow is evaluated once.
+Optional `match`, `try`, `defer`, and their control-flow
 lowerings remain future work. Boolean short-circuiting appears explicitly
 in the CFG. Traps must not become C undefined behavior.
 

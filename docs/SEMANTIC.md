@@ -63,7 +63,11 @@ are arena-allocated; it does not yet annotate the AST with persistent
   tuple and fixed-array literal construction, indexed access, basic
   array/slice indexing and `.len`; fixed-array literals enforce element
   types, arity and contextual typing for `[]`.
-  Check `?T` construction with `some(value)` and `none`.
+  Check `?T` construction with `some(value)` and `none`, plus
+  `optional.has` (returns `bool`) and `optional.value` (returns
+  the exact payload type `T`). Reject unrecognized optional members
+  and type-incompatible uses; unwrapping `none` is a runtime trap,
+  not a compile-time diagnostic. Optional expressions evaluate once.
 - Check tuple patterns (including nested destructuring), tuple arity,
   parameter/return types, `if`/`while` conditions, integer `for` ranges,
   and `break`/`continue` placement.
@@ -100,6 +104,9 @@ are arena-allocated; it does not yet annotate the AST with persistent
   and target ABI layout analysis are not implemented.
 - `none` requires an optional type context; result type inference is
   deliberately local, not global constraint solving.
+- Optional `.value` is always checked at runtime; there is no
+  compile-time proof/flow narrowing from `.has`, no exhaustive match,
+  optional chaining or implicit unwrap.
 - Only the first semantic error is reported. Definite assignment across all
   paths, exhaustive control-flow analysis, liveness, constant propagation,
   and persistent typed IR are future work.

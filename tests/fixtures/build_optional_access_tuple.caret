@@ -1,0 +1,5 @@
+fn main() -> i32 {
+    let maybe: ?(i32, i32) = some((20, 22));
+    let (x, y) = maybe.value;
+    return x + y;
+}

@@ -1,0 +1,5 @@
+fn main() -> i32 {
+    let item = none;
+    if item.has { return 42; }
+    return 0;
+}

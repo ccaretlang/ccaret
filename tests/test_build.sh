@@ -88,6 +88,21 @@ for case in slice_basic slice_const slice_call slice_bool slice_struct \
     build_run "$case" 42
 done
 
+for case in optional_access_basic optional_access_none \
+    optional_access_nested optional_access_struct optional_access_array \
+    optional_access_slice optional_access_pointer optional_access_call \
+    optional_access_tuple optional_access_bool optional_access_flow \
+    optional_access_field_collision optional_access_shortcircuit; do
+    build_run "$case" 42
+done
+
+"$binary" emit-ir "$root/tests/fixtures/build_optional_access_basic.caret" \
+    -o "$out/optional_access_basic.ir"
+grep -q 'optional.has' "$out/optional_access_basic.ir"
+grep -q 'optional.unwrap' "$out/optional_access_basic.ir"
+grep -q 'if (!r' "$out/compiled_optional_access_basic.c"
+grep -q '\.value;' "$out/compiled_optional_access_basic.c"
+
 for case in subrange_basic subrange_write subrange_nested subrange_slice \
     subrange_empty subrange_flow subrange_temporary_slice \
     subrange_struct subrange_tuple subrange_bool subrange_order; do
@@ -216,6 +231,11 @@ for case in hello call factorial while shortcircuit boolean \
     ptr_struct ptr_array ptr_optional ptr_flow \
     slice_basic slice_const slice_call slice_bool slice_struct \
     slice_empty slice_flow slice_optional slice_array slice_nested \
+    optional_access_basic optional_access_none \
+    optional_access_nested optional_access_struct optional_access_array \
+    optional_access_slice optional_access_pointer optional_access_call \
+    optional_access_tuple optional_access_bool optional_access_flow \
+    optional_access_field_collision optional_access_shortcircuit \
     subrange_basic subrange_write subrange_nested subrange_slice \
     subrange_empty subrange_flow subrange_temporary_slice \
     subrange_struct subrange_tuple subrange_bool subrange_order; do
@@ -257,7 +277,9 @@ for case in overflow divzero div_overflow neg_overflow \
     ptr_overflow slice_oob slice_negative slice_empty_oob \
     slice_oob_write slice_overflow \
     subrange_negative subrange_oob subrange_reversed \
-    subrange_empty_oob subrange_nested_oob; do
+    subrange_empty_oob subrange_nested_oob \
+    optional_access_none_trap optional_access_nested_trap \
+    optional_access_call_trap; do
     "$binary" build "$root/tests/fixtures/build_$case.caret" \
         -o "$out/trap_$case"
     set +e
@@ -276,7 +298,9 @@ for case in overflow compound_overflow compound_divzero \
     ptr_overflow slice_oob slice_negative slice_empty_oob \
     slice_oob_write slice_overflow \
     subrange_negative subrange_oob subrange_reversed \
-    subrange_empty_oob subrange_nested_oob; do
+    subrange_empty_oob subrange_nested_oob \
+    optional_access_none_trap optional_access_nested_trap \
+    optional_access_call_trap; do
     gcc -std=c17 -O2 -Wall -Wextra -Wpedantic -Werror \
         "$out/trap_$case.c" -o "$out/optimized_trap_$case"
     set +e
@@ -371,6 +395,23 @@ grep -q 'error: semantic: array subrange requires a named local array' \
 grep -q 'error: semantic: type mismatch' "$out/subrange_bool_invalid.err"
 grep -q 'error: semantic: cannot write through const slice' \
     "$out/subrange_const_write_invalid.err"
+
+for case in optional_access_bad_has optional_access_bad_value \
+    optional_access_bad_member optional_access_bad_type \
+    optional_access_none_infer; do
+    if "$binary" build "$root/tests/fixtures/build_$case.caret" \
+        -o "$out/invalid_$case" > /dev/null 2> "$out/$case.err"; then
+        echo "build: invalid optional access $case must fail" >&2
+        exit 1
+    fi
+done
+grep -q 'error: semantic: unknown member' "$out/optional_access_bad_has.err"
+grep -q 'error: semantic: unknown member' "$out/optional_access_bad_value.err"
+grep -q 'error: semantic: unknown optional member' \
+    "$out/optional_access_bad_member.err"
+grep -q 'error: semantic: type mismatch' "$out/optional_access_bad_type.err"
+grep -q 'error: semantic: none requires an optional type context' \
+    "$out/optional_access_none_infer.err"
 
 if "$binary" build "$root/tests/fixtures/build_invalid_main.caret" \
     -o "$out/invalid_main" > /dev/null 2> "$out/invalid_main.err"; then

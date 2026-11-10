@@ -46,6 +46,8 @@ static const char *op_name(CcIrOpcode op)
     case CC_IR_GET_TUPLE: return "tuple.get";
     case CC_IR_MAKE_SOME: return "some";
     case CC_IR_MAKE_NONE: return "none";
+    case CC_IR_OPTIONAL_HAS: return "optional.has";
+    case CC_IR_OPTIONAL_UNWRAP: return "optional.unwrap";
     case CC_IR_MAKE_ARRAY: return "array";
     case CC_IR_GET_ARRAY: return "array.get";
     case CC_IR_STORE_INDEX: return "array.store";
@@ -187,6 +189,10 @@ bool cc_ir_print(FILE *out, const CcIrModule *module)
                     fprintf(out, " %%%u", i->lhs);
                     break;
                 case CC_IR_MAKE_NONE:
+                    break;
+                case CC_IR_OPTIONAL_HAS:
+                case CC_IR_OPTIONAL_UNWRAP:
+                    fprintf(out, " %%%u", i->lhs);
                     break;
                 case CC_IR_MAKE_ARRAY:
                 case CC_IR_MAKE_STRUCT:
